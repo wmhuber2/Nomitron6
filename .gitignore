@@ -1,5 +1,7 @@
-.csv
-.yaml
-.yml
-.data
-.secret
+*.csv
+*.yaml
+*.yml
+*Log.txt
+*.data
+*.secret
+*.cpython-*

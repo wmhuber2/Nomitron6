@@ -1,0 +1,178 @@
+Nomitron Bot and Discord Module API
+====================================
+
+This is a brief reference for public callable functions. Async functions must
+be awaited. `bot` means an initialized DiscordNomicBot instance unless noted.
+Payload means a dictionary containing module data.
+
+BOT: DiscordNomicBot (Data/Nomitron.py)
+---------------------------------------
+
+log(*args, mode='debug') -> None
+    Writes a message to the logger. `mode` may be debug, info, error, warn,
+    or warning.
+
+
+
+add_Task(function, kwargs={}, timeout=10) -> None
+    Adds a function call to the bot task queue. The bot is added to kwargs automatically. 
+    These are run after the current set of tasks are complete and the bot Data is updated
+
+schedule(module_name, method_name, Key, Mode, Trigger_Value, kwargs={},
+         name=None, sequential_only=False) -> None
+    Creates a scheduled module call triggered by a Data value comparison.
+
+
+
+
+stage(nested_key, operation, *args, **kwargs) -> None
+    Queues a data mutation without applying it immediately. Names without a
+    leading period are predefined operations: set, delete, increment,
+    decrement, append, remove, merge, replace, multiply, divide, power_of,
+    union, and update_nested_dict. A name such as .append invokes that method
+    on the target datatype and may use arbitrary positional or keyword args.
+
+get(*nested_key) -> object
+    Returns a deep copy of a value in Data. Changes to the result do not alter
+    live bot data.
+
+get_Ref(*nested_key) -> object
+    Returns the live object reference stored in Obj_Refs.
+
+set(*nested_key, kwargs, id=None) -> object
+    Queues a value at a nested Data path and returns a copy of that value.
+    ``values`` remains accepted as a compatibility alias.
+
+set_ObjRef(*nested_key_and_value) -> None
+    Stores a live, non-serializable object reference in Obj_Refs.
+
+remove(*nested_key) -> None
+    Queues deletion of a nested Data value if it exists.
+
+remove_ObjRef(*nested_key) -> None
+    Removes an object reference if present.
+
+update_nested_dict(nested_key, structure) -> dict
+    Merges existing nested dictionary data with `structure`, queues the result,
+    and returns a copy of the updated dictionary.
+
+keys(*nested_key, include_history=False) -> list
+    Returns keys or indexes for a nested value. History metadata is excluded by
+    default.
+
+len(*nested_key) -> int
+    Returns the logical length of a nested value.
+
+has(*nested_key) -> bool
+    Returns whether a complete nested Data path exists.
+
+where(nested_key, conditional) -> list
+    Finds wildcard paths whose values satisfy `conditional`.
+
+wrap(function, kwargs={}, args=[], timeout=None) -> None [async]
+    Runs a synchronous or asynchronous function and logs exceptions. `kwargs`
+    and `args` provide its arguments; `timeout` logs slow calls.
+
+
+GLOBAL METHOD EVENT HANDLERS
+---------------------------------------------
+
+setup(bot) -> None [async]
+update(bot) -> None [async]
+reload_references(bot) -> None [async]
+
+on_join(bot, member) -> None [async]
+on_message(bot, message) -> None [async]
+on_reaction(bot, reaction) -> None [async]
+on_role_lost(bot, role) -> None [async]
+on_role_gain(bot, role) -> None [async]
+on_typing(bot, event) -> None [async]
+
+
+DISCORD MODULE: Data/Discord_Module.py
+--------------------------------------
+
+player_from_mention(bot, PID) -> discord.Member
+    Resolves a numeric ID or mention-like value to a Discord member. Raises an
+    exception when the ID is empty or cannot be found.
+
+user_from_PID(bot, PID) -> discord.Member
+    Returns the Discord user/member reference for a player ID.
+
+chan_from_Name(bot, Name) -> discord.TextChannel
+    Returns the referenced text channel by name.
+
+chan_from_ID(bot, TID) -> discord.TextChannel
+    Finds and returns a text channel by channel ID.
+
+send(bot, target, content, wrap=['',''], files=None, ephemeral=False,
+     silent=False) -> list[Payload] or None [async]
+    Sends text to a member, user ID, channel name, or channel object. Long
+    content is split into blocks. Returns normalized message payloads.
+
+return_resp(bot, interaction, text, wrap=['',''], files=None,
+            ephemeral=False) -> None [async]
+    Sends a response to a payload, user ID, channel name, or Discord
+    interaction.
+
+move_channel_catagory(bot, text_channel_name, catagory_name, pos=0) -> None [async]
+    Moves a text channel into a category at the requested position.
+
+set_channel_perms(bot, text_channel_name, permSetName) -> None [async]
+    Applies a stored permission profile to a text channel.
+
+create_channel(bot, text_channel_name, catagory_name,
+               permSetName='Player Only') -> None [async]
+    Creates and registers a text channel if it does not already exist.
+
+create_category(bot, catagory_name) -> None [async]
+    Creates and registers a channel category if it does not already exist.
+
+remove_reaction(bot, dm_pid_or_channel_name, msgid, emoji, PID) -> None [async]
+    Removes a member's reaction from a message in a DM or named channel.
+
+add_reaction(bot, dm_pid_or_channel_name, msgid, emoji) -> None [async]
+    Adds a reaction to a message in a DM or named channel.
+
+create_role(bot, roleName) -> None [async]
+    Creates and registers a role using the player role's settings.
+
+addRole(bot, PID, RoleName) -> Discord result [async]
+    Adds a named role to a member.
+
+removeRole(bot, PID, RoleName) -> Discord result [async]
+    Removes a named role from a member.
+
+hasRole(bot, PID, RoleName) -> bool
+    Checks whether a player has a named role.
+
+isActive(bot, PID) -> bool
+    Returns True when the player does not have the Inactive role.
+
+isPlayer(bot, PID) -> bool
+    Returns whether the player has the Player role.
+
+isJudge(bot, PID) -> bool
+    Returns whether the player has the Judge role.
+
+isModerator(bot, PID) -> bool
+    Returns whether the player has the Moderator role.
+
+usersWithRole(bot, roleName) -> list[int]
+    Returns player IDs that have the named role.
+
+getBotMsgs(bot, channel_name) -> list[discord.Message] [async]
+    Returns the bot-authored messages from the latest 150 messages in a channel,
+    ordered oldest to newest.
+
+display(bot, channel_name, list_of_msgDict) -> list[int] [async]
+    Creates or updates a bot display channel from normalized message payloads
+    and returns the displayed message IDs.
+
+
+Notes
+-----
+- Payload is a dictionary used by the module's event and message functions.
+- Several existing implementation functions use dynamic bot attributes, so the
+  documented output describes intended runtime behavior rather than strict
+  static guarantees.
