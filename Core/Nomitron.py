@@ -351,14 +351,12 @@ class DiscordNomicBot():
             nested_key = tuple(nested_key[0])
         return self._data_value_at(self.Obj_Refs, tuple(nested_key))
    
-    def set(self, *nested_key, kwargs, id=None):
+    def set(self, nested_key, kwargs):
         """Stage any value at a nested path.
 
         Missing dictionary levels in the path are created when the staged
         change is committed. ``kwargs`` is the value assigned by ``set``.
         """
-        if id is not None:
-            nested_key = nested_key + (id,)
         if len(nested_key) == 1 and isinstance(nested_key[0], (tuple, list)):
             nested_key = tuple(nested_key[0])
         if not nested_key:
@@ -638,7 +636,10 @@ class DiscordNomicBot():
         new_filename = join(history_folder, f'{start:%Y%b%d}_to_{end:%Y%b%d}.yaml')
         temporary = new_filename + '.tmp'
         with open(temporary, 'w', encoding='utf-8') as handle:
-            yaml.safe_dump(journal, handle, allow_unicode=True, sort_keys=False)
+            try:yaml.safe_dump(journal, handle, allow_unicode=True, sort_keys=False)
+            except Exception as e:
+                self.log(f'Error writing journal to {temporary}: {e} \n {journal}', mode='error')
+                # raise e
         os.replace(temporary, new_filename)
         if filename and os.path.abspath(filename) != os.path.abspath(new_filename) and exists(filename):
             os.remove(filename)

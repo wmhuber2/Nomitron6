@@ -281,7 +281,7 @@ async def on_role_lost(bot: Bot, role: Payload) -> None:
     bot.remove('Players', role['PID'], 'Roles', role['Role'])
 
 async def on_role_gain(bot: Bot, role: Payload) -> None:
-    bot.set('Players', role['PID'], 'Roles', role['Role'], kwargs=True)
+    bot.set(('Players', role['PID'], 'Roles', role['Role']), kwargs=True)
 
 async def on_typing(bot: Bot, event: Payload) -> None: pass
 
@@ -346,7 +346,7 @@ async def reload_references(bot: Bot) -> None:
                 'Items':[],
                 'Roles':[],
             })
-            bot.set('Players', member.id, 'Roles', kwargs=[])
+            bot.set(('Players', member.id, 'Roles'), kwargs=[])
             bot.set_ObjRef('Players', member.id, member)
            
 

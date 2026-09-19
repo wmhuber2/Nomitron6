@@ -29,15 +29,11 @@ async def update(bot,):
         # Active Checks
         if bot.Modules['Discord_Module'].isActive(bot, pid):
             if bot.get('Users',pid, 'Last Active Time') is not  None:
-                bot.set('Users', pid, values={
-                        'Last Active Time': None
-                    })
+                bot.set(('Users', pid, 'Last Active Time'), None)
         # Inactive Checks
         else:
             if bot.get('Users',pid, 'Last Active Time') is  None:
-                bot.set('Users', pid, values={
-                        'Last Active Time': bot.get('Vars','Time')
-                    })
+                bot.set(('Users', pid, 'Last Active Time'), bot.get('Vars','Time'))
         
             for role in inactive_forcing_roles:
                 if bot.Modules['Discord_Module'].hasRole(bot, pid, role): await makeInactive(bot, pid)

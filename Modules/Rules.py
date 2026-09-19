@@ -89,7 +89,7 @@ async def reload_references(bot):
                 
                 rule = str(rule) #markdownify.markdownify( rule, heading_style = "ATX", escape_asterisks=False))
                 rule_found.append(int(rulenum))
-                bot.set('Rules',int(rulenum), kwargs={
+                bot.set(('Rules', int(rulenum)), kwargs={
                     'Header': header, 
                     'Text': body, 
                     'Is Mutable': 'IMMUTABLE' in header
