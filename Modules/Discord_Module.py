@@ -62,7 +62,7 @@ def player_from_mention(bot: Bot, PID: Union[int, str]) -> discord.Member:
             raise Exception(f"Cannot find player with mention and id {PID}")
 
 def user_from_PID(bot: Bot, PID: int) -> discord.Member:
-    return bot.get_Ref('Users', PID)
+    return bot.get_Ref('Players', PID)
 
 def chan_from_Name(bot: Bot, Name: str) -> discord.TextChannel:
     return bot.get_Ref('Text Channels', Name)
@@ -118,6 +118,15 @@ async def _direct_msg(bot: Bot, pid: Union[int, Any], msg: str, files: Optional[
 async def send(bot: Bot, target: Optional[DiscordTarget], content: str,
                wrap: List[str] = ['', ''], files: Optional[List[Any]] = None,
                ephemeral: bool = False, silent: bool = False) -> Optional[List[Payload]]:
+    
+    if type(content) in [list, tuple] and len(content) >= 1: 
+        msgs = []
+        for c in content[:-1]: 
+            msgs.append( await send(bot, target, c, wrap=wrap, files=[], ephemeral=ephemeral, silent=silent) )
+        msgs.append( await send(bot, target, content[-1], wrap=wrap, files=files, ephemeral=ephemeral, silent=silent) )
+        return msgs
+
+    
     if files is None:
         files = []
     if target is None: return
@@ -189,18 +198,18 @@ async def messageDict(bot: Bot, message: discord.Message) -> Payload:
         payload['Attachment Links'][f.filename] = f.proxy_url.replace("media.discordapp.net","cdn.discordapp.com")
     
 
-    bot.log('   MSG--'+ payload['Content']+ '-----')
+    # bot.log('   MSG--'+ payload['Content']+ '-----')
     return payload
 
 async def reactionDict(bot: Bot, reaction: discord.RawReactionActionEvent, mode: str) -> Payload:
     payload = {}
 
     user    = user_from_PID(bot, reaction.user_id)
-    if reaction.guild_id is None:
+    if reaction.guild.id is None:
         channel = reaction.user_id
     else:
         channel = chan_from_ID(bot, reaction.channel_id)
-    if reaction.guild_id is None:  msg = await    user.fetch_message(reaction.message_id)
+    if reaction.guild.id is None:  msg = await    user.fetch_message(reaction.message_id)
     else:                          msg = await channel.fetch_message(reaction.message_id)
 
     # Create Payload
@@ -316,8 +325,8 @@ async def _registerCommand(bot: Bot, settings: Payload) -> None:
 async def reload_references(bot: Bot) -> None:
     
     for s in bot.client.guilds:
-        # bot.log( '\t Found Server: '+s.name)
         if bot.ServerName != s.name: continue
+        bot.log( '\t Found Server: '+s.name)
 
 
 
@@ -332,12 +341,13 @@ async def reload_references(bot: Bot) -> None:
 
         # Create member Refs
         for member in s.members:
-            bot.update_nested_dict(('Users', member.id), {
+            bot.update_nested_dict(('Players', member.id), {
                 'Name': member.nick if member.nick else member.name,
                 'Items':[],
                 'Roles':[],
             })
-            bot.set_ObjRef('Users', member.id, member)
+            bot.set('Players', member.id, 'Roles', kwargs=[])
+            bot.set_ObjRef('Players', member.id, member)
            
 
 
@@ -353,8 +363,10 @@ async def reload_references(bot: Bot) -> None:
             })
             bot.set_ObjRef('Roles', role.name, role)
 
+
             for member in role.members:
-                bot.set('Players', member.id, 'Roles', role.name, kwargs=True)
+                # if role.name in bot.get('Players', member.id, 'Roles'): continue
+                bot.stage(nested_key=('Players', member.id, 'Roles'), method='append', args=[role.name])
         
         ER = s.default_role
         bot.update_nested_dict(('Roles', ER.name), {
@@ -413,7 +425,6 @@ async def on_message_event(bot: Bot, payload: Union[Payload, discord.Message]) -
         payload = await messageDict(bot, payload)
         
     if payload['Author PID'] == bot.client.user.id: return
-    if not isPlayer(bot, payload['Author PID']): return
 
     await send(bot, logChan, f"Player {payload['Author']} MSG in {payload['Channel']} {payload['Content']}",silent=True)
     bot.schedule( 
@@ -432,7 +443,6 @@ async def on_raw_reaction_event(bot: Bot, payload: Union[Payload, discord.RawRea
         if payload.user_id == bot.client.user.id: return
         payload = await reactionDict(bot, payload, mode)
     if payload['Reactor PID'] == bot.client.user.id: return
-    if not isPlayer(bot, payload['Reactor PID']): return
 
     await send(bot, logChan, f"Player {payload['Reactor']} React {mode} : {payload['Emoji'] } on MSG {payload['MSG']['Content']} in {payload['MSG']['Channel']}",silent=True)
     bot.schedule( 
@@ -448,14 +458,14 @@ async def on_raw_reaction_event(bot: Bot, payload: Union[Payload, discord.RawRea
 
 async def on_member_update_event(bot: Bot, before: Any, after: discord.Member) -> None: # Nomitorn 6
     bot.log('Role Member Update')
-    if bot.get('Servers',bot.ServerName,'SID') != before.guild_id: return
+    if bot.get('Servers',bot.ServerName,'SID') != before.guild.id: return
     if before.id == bot.client.user.id: return
 
     for role in before.roles:
         if role in after.roles: continue
         payload = await roleDict(bot, role=role, player=after, mode='Remove')
 
-        await send(bot, logChan, f'Role {mode} {player.name} {role.name}',silent=True)
+        await send(bot, logChan, f'Role {payload["Mode"]} {payload["Nick"]} {payload["Role"]}',silent=True)
         bot.schedule( 
             method_name = 'passToModule',
             module_name = 'Nomitron',
@@ -471,7 +481,7 @@ async def on_member_update_event(bot: Bot, before: Any, after: discord.Member) -
         if role in before.roles: continue
         payload = await roleDict(bot, role=role, player=after, mode='Add')
 
-        await send(bot, logChan, f'Role {mode} {player.name} {role.name}',silent=True)
+        await send(bot, logChan, f'Role {payload["Mode"]} {payload["Nick"]} {payload["Role"]}',silent=True)
         bot.schedule( 
             method_name = 'passToModule',
             module_name = 'Nomitron',
@@ -500,7 +510,7 @@ async def on_member_join_event(bot: Bot, member: discord.Member) -> None: # Nomi
     
 async def on_raw_typing(bot: Bot, payload: discord.RawTypingEvent) -> None: # Nomitorn 6
     if payload.user_id == bot.client.user.id: return
-    if bot.get('Servers',bot.ServerName,'SID') != payload.guild_id: return
+    if bot.get('Servers',bot.ServerName,'SID') != payload.guild.id: return
     if not isPlayer(bot, payload.user_id): return  
 
     evernt = await typingDict(bot, payload) 
@@ -539,9 +549,9 @@ async def create_channel(bot: Bot, text_channel_name: str, catagory_name: str,
                          permSetName: str = 'Player Only') -> None:
     server = bot.get_Ref('Servers', bot.ServerName)
     if bot.has('Text Channels', text_channel_name): return
-    bot.log(f'Creating Text Channel {text_channel_name} in {catagory_name} with perms {permSet}')
+    bot.log(f'Creating Text Channel {text_channel_name} in {catagory_name} with perms {permSetName}')
     catagory = bot.get_Ref('Channel Catagories', catagory_name)
-    perms    = bbot.get_Ref('Permission Sets', permSetName)
+    perms    = bot.get_Ref('Permission Sets', permSetName)
 
     c = await server.create_text_channel(name = text_channel_name, overwrites=perms, category= catagory)
     if c is None: return
@@ -601,17 +611,17 @@ async def create_role(bot: Bot, roleName: str) -> None:
     bot.set_ObjRef('Roles', role.name, role)
 
 async def addRole(bot: Bot, PID: int, RoleName: str) -> Any:
-    player = bot.get_Ref('Users', PID)
+    player = bot.get_Ref('Players', PID)
     role   = bot.get_Ref('Roles', RoleName)
     return await player.add_roles(role)
 
 async def removeRole(bot: Bot, PID: int, RoleName: str) -> Any:
-    player = bot.get_Ref('Users', PID)
+    player = bot.get_Ref('Players', PID)
     role   = bot.get_Ref('Roles', RoleName)
     return await player.remove_roles(role)
  
 def hasRole(bot: Bot, PID: int, RoleName: str) -> bool:
-    return bot.has('Players', PID, 'Roles', RoleName)
+    return RoleName in bot.get('Players', PID, 'Roles')
 
 def isActive(bot: Bot, PID: int) -> bool:
     return not hasRole(bot, PID, InactiveRole)
@@ -648,7 +658,7 @@ async def getBotMsgs(bot: Bot, channel_name: str) -> List[discord.Message]:
 async def display(bot: Bot, channel_name: str, list_of_msgDict: List[Payload]) -> List[int]:
     if not bot.has('Text Channels', channel_name): 
         await create_channel(bot, channel_name, 'BUSINESS', 'Locked')
-        bot.add_Task( display, dict(chan=channel_name, list_of_msgDict=list_of_msgDict))
+        bot.add_Task( display, dict(channel_name=channel_name, list_of_msgDict=list_of_msgDict))
         return
     
     msgs = await getBotMsgs(bot, channel_name)

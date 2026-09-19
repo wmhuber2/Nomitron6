@@ -7,14 +7,16 @@ botCommandChar = '!'
 file_path       = os.path.realpath(os.path.abspath(inspect.getfile(inspect.currentframe())))
 path            = os.path.realpath(os.path.abspath(os.path.join(file_path, os.pardir,os.pardir,)))
 timezone        = pytz.timezone('UTC')
+os.chdir(path)
 
 
 savepath        = join(path, 'Save-State')
 history_folder  = join(savepath, 'History')
 backup_folder   = join(path, 'Backups')
+if not exists(savepath): os.mkdir(savepath)
 print(savepath, path)
 
-serverName      = "Nomic VII PTR"
+serverName      = "Nomic VIII PTR"
 speed_mult      = 1
 startDate       = datetime.datetime( year =2026, month = 9, day = 1, hour = 12, minute=0, tzinfo=timezone)
 logFile         = 'Nomitorn_Log.txt' 
@@ -254,6 +256,7 @@ class DiscordNomicBot():
         if not isinstance(self.Data_Changes, list):
             # Supports bots constructed from an older saved/runtime layout.
             self.Data_Changes = []
+        if 'args' in kwargs: args = list(args) + kwargs.pop('args')
         self.Data_Changes.append({
             'source': self.stage_source,
             'operation': method,
@@ -263,7 +266,7 @@ class DiscordNomicBot():
             'sequence': len(self.Data_Changes),
         })
     def merge_commit(self, message=''):
-        """Atomically apply staged changes, deepest paths first, and log them.
+        """Atomically apply staged changes and log them.
 
         A commit is stored as one human-readable journal entry. Journal files
         are rotated by a one-month span or 500 commits.
@@ -273,10 +276,7 @@ class DiscordNomicBot():
         if not self.Data_Changes:
             return []
 
-        changes = sorted(
-            self.Data_Changes,
-            key=lambda change: (-len(change['path']), change['sequence']),
-        )
+        changes = self.Data_Changes
         committed = []
         base_state = deepcopy(self.Data)
         commit_time = self._next_history_key()
@@ -489,6 +489,7 @@ class DiscordNomicBot():
                 return
             parent, key = cls._parent_and_key(data, path, create=True)
             parent[key] = args[0]
+           
             return
 
         if method == 'delete':
@@ -499,7 +500,8 @@ class DiscordNomicBot():
             return
 
         if method in {'increment', 'decrement', 'multiply', 'divide', 'power_of'}:
-            parent, key = cls._parent_and_key(data, path)
+            parent, key = cls._parent_and_key(data, path, create=True)
+
             if parent is None:
                 raise ValueError('The root Data dictionary cannot be incremented or decremented')
             if len(args) != 1:
@@ -518,9 +520,18 @@ class DiscordNomicBot():
             return
 
         if method in {'append', 'remove', 'merge', 'union', 'update_nested_dict'}:
+            parent, key = cls._parent_and_key(data, path,   create=True)
+            if type(parent[key]) == dict:
+                if key not in parent:
+                    if method == 'append':
+                        parent[key] = []
+                    elif method == 'union':
+                        parent[key] = set()
             target = cls._data_value_at(data, path)
             if method == 'append':
-                target.append(*args, **kwargs)
+                try: target.append(args[0])
+                except:
+                    pass
             elif method == 'remove':
                 parent, key = cls._parent_and_key(data, path)
                 del parent[key]
@@ -687,7 +698,7 @@ class DiscordNomicBot():
         return True
 
     def where(self, nested_key, conditional):
-        """Return wildcard keys whose resolved values satisfy ``conditional``.
+        """Return path of keys whose resolved values satisfy ``conditional``.
 
         ``nested_key`` must contain one or more ``'*'`` entries.  At each
         wildcard, every key in the dictionary reached by the preceding path is
@@ -711,10 +722,10 @@ class DiscordNomicBot():
 
         matches = []
 
-        def walk(value, remaining_path, wildcard_keys):
+        def walk(value, remaining_path, path_keys):
             if not remaining_path:
                 if conditional(deepcopy(value)):
-                    matches.append(deepcopy(wildcard_keys))
+                    matches.append(deepcopy(path_keys))
                 return
 
             key = remaining_path[0]
@@ -722,9 +733,9 @@ class DiscordNomicBot():
                 if not isinstance(value, dict):
                     raise TypeError("'*' can only expand keys from a dictionary")
                 for child_key, child_value in value.items():
-                    walk(child_value, remaining_path[1:], wildcard_keys + (child_key,))
+                    walk(child_value, remaining_path[1:], path_keys + (child_key,))
             else:
-                walk(value[key], remaining_path[1:], wildcard_keys)
+                walk(value[key], remaining_path[1:], path_keys + (remaining_path[0],))
 
         walk(self.Data, nested_key, tuple())
         wildcard_count = nested_key.count('*')
@@ -745,7 +756,7 @@ class DiscordNomicBot():
             traceback_str = ''.join(traceback.format_tb(e.__traceback__))
             self.log(f'!!! Error In {function.__name__}(kwargs={kwargs}): {datetime.datetime.now()} {e} \n{traceback_str}',mode='error')
 
-            raise e
+            # raise e
        
     """
     Load all modules into Nomitron (Updated to Nomitron 5)
@@ -753,12 +764,15 @@ class DiscordNomicBot():
     def reload_modules(self):
         self.log('Importing Mods')
 
-        self.Modules[basename(file_path)[:-3]] = importlib.import_module('Core.' + basename(file_path)[:-3])
-        for mod in list(glob.glob(join(path, "Modules", "*.py"))):
+        for mod in list(glob.glob(join(path, "Modules", "*.py"))) + [file_path,]:
             modName = basename(mod)[:-3]
             if modName in ['Blank',]: continue
             self.log(f' Importing Module: {modName}', mode='Info')
-            self.Modules[modName] = importlib.import_module('Modules.' + modName)
+
+            spec = importlib.util.spec_from_file_location(modName, mod)
+            foo = importlib.util.module_from_spec(spec)
+            self.Modules[modName] = foo
+            spec.loader.exec_module(foo)
 
   
     """
