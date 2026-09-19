@@ -23,17 +23,17 @@ async def update(bot,):
         if role not in roles: 
             bot.add_Task(bot.Modules['Discord_Module'].create_role, {'roleName': role})
 
-    for pid in bot.keys('Users'):
+    for pid in bot.keys('Players'):
         if not bot.Modules['Discord_Module'].isPlayer(bot, pid): continue
 
         # Active Checks
         if bot.Modules['Discord_Module'].isActive(bot, pid):
-            if bot.get('Users',pid).get('Last Active Time') is not  None:
-                bot.set('Users', pid, 'Last Active Time', kwargs=None)
+            if bot.get('Players',pid).get('Last Active Time') is not  None:
+                bot.set('Players', pid, 'Last Active Time', kwargs=None)
         # Inactive Checks
         else:
-            if bot.get('Users',pid).get('Last Active Time') is  None:
-                bot.set('Users', pid, 'Last Active Time', kwargs=bot.get('Vars','Time'))
+            if bot.get('Players',pid).get('Last Active Time') is  None:
+                bot.set('Players', pid, 'Last Active Time', kwargs=bot.get('Vars','Time'))
         
             for role in inactive_forcing_roles:
                 if bot.Modules['Discord_Module'].hasRole(bot, pid, role): await makeInactive(bot, pid)

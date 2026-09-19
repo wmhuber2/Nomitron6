@@ -40,8 +40,8 @@ votingChanGen       = lambda propNum: f"proposal-{propNum}".lower().replace(' ',
 proposalChanGen     = lambda queue: f"{queue}-proposals"
 queueChanGen        = lambda queue: f"{queue}-queue"
 
-# Nomitron 6 bot.where returns 1-tuples of keys; unwrap them to row ids like the old table API
-def where(bot, table, conditional): return [k[0] for k in bot.where((table, '*'), conditional)]
+# Nomitron 6 bot.where returns (table, row id) paths; unwrap them to row ids like the old table API
+def where(bot, table, conditional): return [k[1] for k in bot.where((table, '*'), conditional)]
 
 async def setup(bot):
     bot.update_nested_dict(('Queue-Proposals',), structure = {})
@@ -72,7 +72,7 @@ async def TallyVotes(bot):
         propNum = bot.get('Queue-Proposals',propID, 'Proposal#' )
         propOwnerPid = bot.get('Queue-Proposals',propID, 'PID' )
         propChannel  = bot.get('Queue-Proposals',propID, 'Channel' )
-        propOwnerName= bot.get('Users',propOwnerPid, 'Name' )
+        propOwnerName= bot.get('Players',propOwnerPid, 'Name' )
 
         announceChan = "actions"
         chan = bot.get_Ref('Text Channels', announceChan)
@@ -117,7 +117,7 @@ def proposalText(bot, propID):
     yay_votes = where(bot, 'User-Proposal-Votes', lambda df: (df['Proposal-ID'] == propID and df['Vote']=='Yay')) 
     nay_votes = where(bot, 'User-Proposal-Votes', lambda df: (df['Proposal-ID'] == propID and df['Vote']=='Nay')) 
         
-    msg = f"Proposal #{bot.get('Queue-Proposals', propID, 'Proposal#')} by: {bot.get('Users', bot.get('Queue-Proposals', propID, 'PID'), 'Name')} ({bot.get('Queue-Proposals', propID, 'Queue')} queue):\n"
+    msg = f"Proposal #{bot.get('Queue-Proposals', propID, 'Proposal#')} by: {bot.get('Players', bot.get('Queue-Proposals', propID, 'PID'), 'Name')} ({bot.get('Queue-Proposals', propID, 'Queue')} queue):\n"
     if bot.get('Queue-Proposals', propID, 'State') in ['Voting',"On Deck"]: msg += f"**Status: { bot.get('Queue-Proposals', propID, 'State') } ({len(yay_votes)} For, {len(nay_votes)} Against.)** \n\n"
     msg += bot.get('Queue-Proposals', propID, 'Body')
     return msg
@@ -219,10 +219,10 @@ async def on_reaction(bot, reaction):
             bot.remove('User-Proposal-Endorsement', f"{pid}-{propID}")
         elif reaction['Emoji'] == 'ℹ️':
             # List Create MSG Header
-            msg = f"------\n **{bot.get('Users', bot.get('Queue-Proposals', propID, 'PID'), 'Name')}'s Proposal Info:**\n"
+            msg = f"------\n **{bot.get('Players', bot.get('Queue-Proposals', propID, 'PID'), 'Name')}'s Proposal Info:**\n"
             # Create Supporters
             msg += f"```Supporters:"
-            for p in where(bot, 'User-Proposal-Endorsement', lambda df: df['Proposal-ID']==propID): msg += '\n - ' + bot.get('Users', bot.get('User-Proposal-Endorsement',p,'PID'),'Name')
+            for p in where(bot, 'User-Proposal-Endorsement', lambda df: df['Proposal-ID']==propID): msg += '\n - ' + bot.get('Players', bot.get('User-Proposal-Endorsement',p,'PID'),'Name')
             msg += "```"
             await bot.Modules['Discord_Module'].return_resp(bot, pid, msg)
             await bot.Modules['Discord_Module'].return_resp(bot, pid, f"**Proposal:**\n{bot.get('Queue-Proposals', propID, 'Body')}")
@@ -433,13 +433,13 @@ async def update_display(bot):
         msgDicts = []
         for i, propID in enumerate(sort_propIDs):
             msgDicts.append({
-                'Content': f"**#{propRank[i] +1}** - { bot.get('Users', bot.get('Queue-Proposals', propID, 'PID'), 'Name') }'s Proposal: (Supporters: {propEndsCnt[i]}) Link:{propLink[i]}```{propBlurb[i]}...```",
+                'Content': f"**#{propRank[i] +1}** - { bot.get('Players', bot.get('Queue-Proposals', propID, 'PID'), 'Name') }'s Proposal: (Supporters: {propEndsCnt[i]}) Link:{propLink[i]}```{propBlurb[i]}...```",
                 'Files'  : {},
                 'Reactions' : ['👍', '👎', 'ℹ️']
             })
-        msgDictsEx = [ {'Content':'.'},]*(len(bot.keys('Users')) - len(msgDicts)) + msgDicts
+        msgDictsEx = [ {'Content':'.'},]*(len(bot.keys('Players')) - len(msgDicts)) + msgDicts
         msgids = await bot.Modules['Discord_Module'].display(bot, queueChanGen(source), msgDictsEx)
-        msgids = msgids[len(bot.keys('Users')) - len(msgDicts):]
+        msgids = msgids[len(bot.keys('Players')) - len(msgDicts):]
         for mid, propID in zip(msgids, sort_propIDs):
             if bot.get('Queue-Proposals', propID, 'Endorse-MID') != mid: bot.set('Queue-Proposals', propID, 'Endorse-MID', kwargs=mid)
 

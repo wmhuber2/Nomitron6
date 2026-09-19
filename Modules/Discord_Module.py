@@ -68,8 +68,8 @@ def chan_from_Name(bot: Bot, Name: str) -> discord.TextChannel:
     return bot.get_Ref('Text Channels', Name)
 
 def chan_from_ID(bot: Bot, TID: int) -> discord.TextChannel:
-    chans = bot.where('Text Channels', lambda db: db['TID'] == TID)
-    return chan_from_Name(bot, chans[0])
+    chans = bot.where(('Text Channels', '*'), lambda db: db['TID'] == TID)
+    return chan_from_Name(bot, chans[0][1])
 
 
 
@@ -205,11 +205,11 @@ async def reactionDict(bot: Bot, reaction: discord.RawReactionActionEvent, mode:
     payload = {}
 
     user    = user_from_PID(bot, reaction.user_id)
-    if reaction.guild.id is None:
+    if reaction.guild_id is None:
         channel = reaction.user_id
     else:
         channel = chan_from_ID(bot, reaction.channel_id)
-    if reaction.guild.id is None:  msg = await    user.fetch_message(reaction.message_id)
+    if reaction.guild_id is None:  msg = await    user.fetch_message(reaction.message_id)
     else:                          msg = await channel.fetch_message(reaction.message_id)
 
     # Create Payload
@@ -278,10 +278,10 @@ async def on_reaction(bot: Bot, reaction: Payload) -> None:
         await on_message_event(bot, payload['MSG'])
 
 async def on_role_lost(bot: Bot, role: Payload) -> None:
-    bot.remove('Players', role['PID'], 'Roles', role['Role'])
+    if hasRole(bot, role['PID'], role['Role']): bot.stage(('Players', role['PID'], 'Roles'), '.remove', role['Role'])
 
 async def on_role_gain(bot: Bot, role: Payload) -> None:
-    bot.set('Players', role['PID'], 'Roles', role['Role'], kwargs=True)
+    if not hasRole(bot, role['PID'], role['Role']): bot.stage(('Players', role['PID'], 'Roles'), 'append', role['Role'])
 
 async def on_typing(bot: Bot, event: Payload) -> None: pass
 
@@ -510,7 +510,7 @@ async def on_member_join_event(bot: Bot, member: discord.Member) -> None: # Nomi
     
 async def on_raw_typing(bot: Bot, payload: discord.RawTypingEvent) -> None: # Nomitorn 6
     if payload.user_id == bot.client.user.id: return
-    if bot.get('Servers',bot.ServerName,'SID') != payload.guild.id: return
+    if bot.get('Servers',bot.ServerName,'SID') != payload.guild_id: return
     if not isPlayer(bot, payload.user_id): return  
 
     evernt = await typingDict(bot, payload) 
@@ -541,8 +541,8 @@ async def set_channel_perms(bot: Bot, text_channel_name: str, permSetName: str) 
     chan = bot.get_Ref('Text Channels', text_channel_name)
 
     edit= False
-    for r,perm in bot.get_Ref('Permission Sets', permSetName):
-        if chan.overwrites[r] != perm: edit=True
+    for r,perm in bot.get_Ref('Permission Sets', permSetName).items():
+        if chan.overwrites.get(r) != perm: edit=True
     if edit: await chan.edit(overwrites= bot.get_Ref('Permission Sets', permSetName))
 
 async def create_channel(bot: Bot, text_channel_name: str, catagory_name: str,
@@ -678,7 +678,6 @@ async def display(bot: Bot, channel_name: str, list_of_msgDict: List[Payload]) -
     msgids = [m.id for m in msgs]        
 
     for msg, msgSet in zip(msgs, list_of_msgDict_exp):
-        msgSet['Content'] = msgSet['Content'].format('utf-8')
         msgSet['Content'] = msgSet['Content'].replace('* *','**').strip()
 
 
