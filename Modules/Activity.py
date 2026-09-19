@@ -28,16 +28,12 @@ async def update(bot,):
 
         # Active Checks
         if bot.Modules['Discord_Module'].isActive(bot, pid):
-            if bot.get('Users',pid, 'Last Active Time') is not  None:
-                bot.set('Users', pid, values={
-                        'Last Active Time': None
-                    })
+            if bot.get('Users',pid).get('Last Active Time') is not  None:
+                bot.set('Users', pid, 'Last Active Time', kwargs=None)
         # Inactive Checks
         else:
-            if bot.get('Users',pid, 'Last Active Time') is  None:
-                bot.set('Users', pid, values={
-                        'Last Active Time': bot.get('Vars','Time')
-                    })
+            if bot.get('Users',pid).get('Last Active Time') is  None:
+                bot.set('Users', pid, 'Last Active Time', kwargs=bot.get('Vars','Time'))
         
             for role in inactive_forcing_roles:
                 if bot.Modules['Discord_Module'].hasRole(bot, pid, role): await makeInactive(bot, pid)
