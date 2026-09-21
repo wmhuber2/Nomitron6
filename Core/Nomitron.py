@@ -18,7 +18,7 @@ if not exists(savepath): os.mkdir(savepath)
 print(savepath, path)
 
 serverName      = "Nomic VIII PTR"
-speed_mult      = 144*5
+speed_mult      = 1
 startDate       = datetime.datetime( year =2026, month = 9, day = 28-7, hour = 2, minute=0, tzinfo=timezone)
 logFile         = 'Nomitorn_Log.txt' 
 
@@ -614,18 +614,20 @@ class DiscordNomicBot():
 
     def _append_history_commit(self, commit, base_state):
         os.makedirs(history_folder, exist_ok=True)
-        files = glob.glob(join(history_folder, '*.yaml'))
-        journal = None
-        filename = None
-        if files:
-            loaded = []
-            for candidate in files:
-                with open(candidate, 'r', encoding='utf-8') as handle:
-                    candidate_journal = yaml.safe_load(handle) or {}
-                if candidate_journal.get('commits'):
-                    loaded.append((candidate, candidate_journal))
-            if loaded:
-                filename, journal = max(loaded, key=lambda item: item[1]['commits'][-1]['time'])
+        filename, journal = getattr(self, '_history_cache', None) or (None, None)
+        self._history_cache = None
+        if filename is None or not exists(filename):
+            filename, journal = None, None
+            files = glob.glob(join(history_folder, '*.yaml'))
+            if files:
+                loaded = []
+                for candidate in files:
+                    with open(candidate, 'r', encoding='utf-8') as handle:
+                        candidate_journal = yaml.load(handle, Loader=getattr(yaml, 'CSafeLoader', yaml.SafeLoader)) or {}
+                    if candidate_journal.get('commits'):
+                        loaded.append((candidate, candidate_journal))
+                if loaded:
+                    filename, journal = max(loaded, key=lambda item: item[1]['commits'][-1]['time'])
         if not journal:
             journal = {'schema': 1, 'base': self._journal_value(base_state), 'commits': []}
 
@@ -642,7 +644,9 @@ class DiscordNomicBot():
         new_filename = join(history_folder, f'{start:%Y%b%d}_to_{end:%Y%b%d}.yaml')
         temporary = new_filename + '.tmp'
         with open(temporary, 'w', encoding='utf-8') as handle:
-            try:yaml.safe_dump(journal, handle, allow_unicode=True, sort_keys=False)
+            try:
+                yaml.dump(journal, handle, Dumper=getattr(yaml, 'CSafeDumper', yaml.SafeDumper), allow_unicode=True, sort_keys=False)
+                self._history_cache = (new_filename, journal)
             except Exception as e:
                 self.log(f'Error writing journal to {temporary}: {e} \n {journal}', mode='error')
                 # raise e

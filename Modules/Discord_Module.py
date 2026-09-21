@@ -592,10 +592,11 @@ async def remove_reaction(bot: Bot, dm_pid_or_channel_name: Union[int, str],
 
 async def add_reaction(bot: Bot, dm_pid_or_channel_name: Union[int, str],
                        msgid: int, emoji: str) -> None:
-    if type(dm_pid_or_channel_name) == str: src = chan_from_Name(bot, dm_pid_or_channel_name)
-    else:                      src = user_from_PID(bot, dm_pid_or_channel_name)
-    msg = await src.fetch_message(msgid)
-    await msg.add_reaction(emoji)
+    if type(dm_pid_or_channel_name) == str:
+        src = chan_from_Name(bot, dm_pid_or_channel_name)
+    else:
+        src = await user_from_PID(bot, dm_pid_or_channel_name).create_dm()
+    await src.get_partial_message(msgid).add_reaction(emoji)
     
 
 
