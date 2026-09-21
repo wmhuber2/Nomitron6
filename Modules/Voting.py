@@ -48,6 +48,7 @@ async def setup(bot):
     bot.update_nested_dict(('User-Proposal-Votes',), structure = {})
     bot.update_nested_dict(('User-Proposal-Endorsement',), structure = {})
     if not bot.has('Vars', 'Next Proposal Number'): bot.set(('Vars', 'Next Proposal Number'), kwargs=301)
+    if not bot.has('Vars', 'Next Proposal Number'): bot.set(('Vars', 'Next Proposal Number'), kwargs=301)
 
     for q in Queues:
         bot.add_Task(bot.Modules['Discord_Module'].create_channel, dict(text_channel_name=proposalChanGen(q), catagory_name='BUSINESS', permSetName='Player Only') )
@@ -85,7 +86,7 @@ async def TallyVotes(bot):
             await bot.Modules['Discord_Module'].send(bot, chan, f"- **Vote Status:**  {propOwnerName}'s Proposal Failed \n" \
                 f"  Tally: {len(yay_votes)} For, {len(nay_votes)} Against.")
     
-        if propChannel is not None:
+        if propChannel is not None and bot.has('Text Channels', propChannel):
             if bot.has('Channel Catagories',propVoteArchiveCat(propNum)):
                 await bot.Modules['Discord_Module'].move_channel_catagory(bot, propChannel, propVoteArchiveCat(propNum))
                 await bot.Modules['Discord_Module'].set_channel_perms(bot, propChannel, 'Locked')
@@ -109,7 +110,7 @@ async def PutToVote(bot):
         propChannel  = bot.get('Queue-Proposals',propID, 'Channel' )
         announceChan = "actions"
         chan = bot.get_Ref('Text Channels', announceChan)
-        await bot.Modules['Discord_Module'].set_channel_perms(bot, propChannel, 'Player Only')
+        if bot.has('Text Channels', propChannel): await bot.Modules['Discord_Module'].set_channel_perms(bot, propChannel, 'Player Only')
         await bot.Modules['Discord_Module'].send(bot, chan, f"Voting is open for Proposal #{propNum}")
        
 
@@ -173,11 +174,14 @@ async def popProposalJudge(bot):
 
 async def yay(bot, PID, propID):
     bot.set(('User-Proposal-Votes', f"{PID}-{propID}"), kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Yay'})
+    bot.set(('User-Proposal-Votes', f"{PID}-{propID}"), kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Yay'})
 
 async def nay(bot, PID, propID):
     bot.set(('User-Proposal-Votes', f"{PID}-{propID}"), kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Nay'})
+    bot.set(('User-Proposal-Votes', f"{PID}-{propID}"), kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Nay'})
 
 async def abstain(bot, PID, propID):
+    bot.set(('User-Proposal-Votes', f"{PID}-{propID}"), kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Abstain'})
     bot.set(('User-Proposal-Votes', f"{PID}-{propID}"), kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Abstain'})
 
 
@@ -212,6 +216,7 @@ async def on_reaction(bot, reaction):
         
         # Proposal Owener From Encoded ID in File Name        
         if reaction['Emoji'] == '👍':
+            bot.set(('User-Proposal-Endorsement', f"{pid}-{propID}"), kwargs={
             bot.set(('User-Proposal-Endorsement', f"{pid}-{propID}"), kwargs={
                 'PID':pid,'Proposal-ID':propID
             })
@@ -277,6 +282,7 @@ async def on_message(bot, message):
             for op in old_props: bot.remove('Queue-Proposals',op)
             propid = f"{pid}-{bot.get('Vars', 'Time')}"
             bot.set(('Queue-Proposals', propid), kwargs = {
+            bot.set(('Queue-Proposals', propid), kwargs = {
                 'DOB':bot.get('Vars', 'Time'),
                 'PID':pid,
                 'Body':text,
@@ -285,6 +291,7 @@ async def on_message(bot, message):
                 'Link': message['Link'],
                 'Proposal#': None, 'Vote Close Time': None, 'Vote Start Time': None, 'Channel': None, 'Endorse-MID': None, 'Rank': None,
             })
+            bot.set(('User-Proposal-Endorsement', f"{pid}-{propid}"), kwargs={
             bot.set(('User-Proposal-Endorsement', f"{pid}-{propid}"), kwargs={
                 'PID':pid,'Proposal-ID':propid
             })
@@ -299,6 +306,7 @@ async def on_message(bot, message):
             for op in old_props: bot.remove('Queue-Proposals',op)
             propid = f"{pid}-{bot.get('Vars', 'Time')}"
             bot.set(('Queue-Proposals', propid), kwargs = {
+            bot.set(('Queue-Proposals', propid), kwargs = {
                 'DOB':bot.get('Vars', 'Time'),
                 'PID':pid,
                 'Body':text,
@@ -307,6 +315,7 @@ async def on_message(bot, message):
                 'Link': message['Link'],
                 'Proposal#': None, 'Vote Close Time': None, 'Vote Start Time': None, 'Channel': None, 'Endorse-MID': None, 'Rank': None,
             })
+            bot.set(('User-Proposal-Endorsement', f"{pid}-{propid}"), kwargs={
             bot.set(('User-Proposal-Endorsement', f"{pid}-{propid}"), kwargs={
                 'PID':pid,'Proposal-ID':propid
             })
