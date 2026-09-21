@@ -6,19 +6,20 @@ from copy import deepcopy
 botCommandChar = '!'
 file_path       = os.path.realpath(os.path.abspath(inspect.getfile(inspect.currentframe())))
 path            = os.path.realpath(os.path.abspath(os.path.join(file_path, os.pardir,os.pardir,)))
-timezone        = pytz.timezone('UTC')
+timezone        = pytz.utc
 os.chdir(path)
 
 
 savepath        = join(path, 'Save-State')
 history_folder  = join(savepath, 'History')
 backup_folder   = join(path, 'Backups')
+shutil.rmtree(savepath, ignore_errors=True)
 if not exists(savepath): os.mkdir(savepath)
 print(savepath, path)
 
 serverName      = "Nomic VIII PTR"
-speed_mult      = 1
-startDate       = datetime.datetime( year =2026, month = 9, day = 1, hour = 12, minute=0, tzinfo=timezone)
+speed_mult      = 144*5
+startDate       = datetime.datetime( year =2026, month = 9, day = 19, hour = 19, minute=20, tzinfo=timezone)
 logFile         = 'Nomitorn_Log.txt' 
 
 SAVE_TO_FOLDER  = '_SAVE TO FOLDER SAVE FLAG'
@@ -59,8 +60,8 @@ class DiscordNomicBot():
         self.week = datetime.timedelta(days=7)
 
         self.SAVE_TO_FOLDER = SAVE_TO_FOLDER
-        self.last_save_time   = self._time_now()
-        self.last_backup_time = self._time_now()
+        self.last_save_time   = self.now()
+        self.last_backup_time = self.now()
 
         self.ServerName = serverName
         self.stage_source = "Unknown"
@@ -79,7 +80,7 @@ class DiscordNomicBot():
         self.Modules = {}                   # Imported Modules
         self.Commands = {}
 
-        self.hasSchedulerWarn = self._time_now() - 10*self.sec
+        self.hasSchedulerWarn = self.now() - 10*self.sec
 
         try:
             loop       = asyncio.new_event_loop()
@@ -97,7 +98,7 @@ class DiscordNomicBot():
         if not exists(backup_folder): os.mkdir(backup_folder)
 
         self.log(f"Starting Nomitron 6\n",
-              f"  System Time: {self._time_now()}\n",
+              f"  System Time: {self.now()}\n",
               f"  Host: {socket.gethostname()}\n"
               )
        
@@ -131,9 +132,9 @@ class DiscordNomicBot():
     """
     Get Now (Updated to Nomitron 6)
     """
-    def _time_now(self) -> datetime.datetime:
+    def now(self) -> datetime.datetime:
         t = datetime.datetime.now(timezone)
-        t = datetime.datetime(t.year, t.month, t.day, t.hour, t.minute, t.second, t.microsecond, tzinfo = timezone)
+        # t = datetime.datetime(t.year, t.month, t.day, t.hour, t.minute, t.second, t.microsecond, tzinfo = timezone)
         t = startDate + (t - startDate) * speed_mult
         return t
 
@@ -183,7 +184,7 @@ class DiscordNomicBot():
                         yaml.safe_dump(value, handle, allow_unicode=True, sort_keys=False)
 
         if self.now() - self.last_backup_time > self.day:
-            shutil.move(folder, join(backup_folder, self._time_now.strftime("%Y-%m-%d %H:00")))
+            shutil.move(folder, join(backup_folder, self.now.strftime("%Y-%m-%d %H:00")))
             self.last_backup_time = self.now()
 
         save_mapping(self.Data, folder)
@@ -402,10 +403,6 @@ class DiscordNomicBot():
         except (KeyError, IndexError, TypeError):
             pass
 
-    def now(self):
-        """Return the current simulated bot time."""
-        return self._time_now()
-
     def update_nested_dict(self, nested_key, structure):
         """Merge stored dictionary values into ``structure`` and stage the result.
 
@@ -559,7 +556,7 @@ class DiscordNomicBot():
 
     def _next_history_key(self):
         """Return a collision-free UTC datetime used as journal id and time."""
-        current = self._time_now().astimezone(pytz.UTC)
+        current = self.now().astimezone(timezone)
         previous = getattr(self, '_last_history_time', None)
         if previous is not None and current <= previous:
             current = previous + datetime.timedelta(microseconds=1)
@@ -808,7 +805,7 @@ class DiscordNomicBot():
     async def _CHECK_SCHEDULE(self):
 
         st = time.time()
-        await self._runTasks(commit_msg=f"Uncaught Changes Scheduler Start - {self._time_now()}")
+        await self._runTasks(commit_msg=f"Uncaught Changes Scheduler Start - {self.now()}")
 
         par_toDo = {}
         seq_toDo ={}
@@ -850,22 +847,22 @@ class DiscordNomicBot():
             self.add_Task(function = func, kwargs=kwargs, name = f"{k}")
         await self._runTasks(commit_msg=f"Scheduler Parallel Sequence {self.get('Vars', 'Time')}" )
 
-        time_behind = self._time_now() -  self.get('Vars', 'Time')
+        time_behind = self.now() -  self.get('Vars', 'Time')
         if time_behind.total_seconds() > 0 and not seq_toDo and not par_toDo:
             self.Data['Vars']['Time'] += 0.2*self.sec
 
         # Skip ahead in time simulation
-        if time_behind > 15*self.sec * speed_mult and self.hasSchedulerWarn + self.sec < self._time_now(): 
-            self.hasSchedulerWarn = self._time_now()
-            minTime = self._time_now() + self.min
+        if time_behind > 15*self.sec * speed_mult and self.hasSchedulerWarn + self.sec*speed_mult < self.now(): 
+            self.hasSchedulerWarn = self.now()
+            minTime = self.now() + self.min
             self.log(f"Warning: SCHELURE IS RUNNING { int(time_behind.total_seconds()) } sec behind!! loop time: {time.time() - st}s", mode='Warning')
             for name, sched in self.get('Schedules').items():
-                if list(sched['Key']) == ['Vars','Time'] and sched['Trigger Value'] < self._time_now() and minTime > sched['Trigger Value']:
+                if list(sched['Key']) == ['Vars','Time'] and sched['Trigger Value'] < self.now() and minTime > sched['Trigger Value']:
                     minTime = sched['Trigger Value'] 
-            if minTime < self._time_now(): self.Data['Vars']['Time'] = minTime - 2*self.sec
+            if minTime < self.now(): self.Data['Vars']['Time'] = minTime - 1*self.sec
 
-        if seq_toDo or par_toDo: self.log('Scheduler Done')
-        elif self.hasSchedulerWarn + 5 * self.sec * speed_mult < self._time_now(): 
+        if seq_toDo or par_toDo: self.log(f'Scheduler Done {self.now()}')
+        elif self.hasSchedulerWarn + 5 * self.sec * speed_mult < self.now(): 
             await asyncio.sleep(0.1)
     
     def schedule(self, module_name, method_name, Key, Mode, Trigger_Value, kwargs={}, name = None, sequential_only=False):
@@ -887,20 +884,20 @@ class DiscordNomicBot():
     async def on_ready(self): # Done        
         self.log(' Logged in as ' + self.client.user.name)
  
-        if startDate > self._time_now(): 
-            while startDate > self._time_now(): 
+        if startDate > self.now(): 
+            while startDate > self.now(): 
                 print("...Waiting For Nomic to start")
                 time.sleep(30)
 
         self.add_Task(function = SETUP, kwargs={'bot':self})
-        await self._runTasks(commit_msg=f"Startup setup - {self._time_now()}")
+        await self._runTasks(commit_msg=f"Startup setup - {self.now()}")
 
         self.add_Task(function = RELOAD_REFS, kwargs={'bot':self})
-        await self._runTasks(commit_msg=f"Startup Reload Refs - {self._time_now()}")
+        await self._runTasks(commit_msg=f"Startup Reload Refs - {self.now()}")
         
         self.add_Task(function = UPDATE, kwargs={'bot':self})
         self.add_Task(function = UPDATE_DISPLAY, kwargs={'bot':self})
-        await self._runTasks(commit_msg=f"Startup Update - {self._time_now()}")
+        await self._runTasks(commit_msg=f"Startup Update - {self.now()}")
 
 
         self.log(' Mainloop Start!')
@@ -930,10 +927,10 @@ async def SETUP(bot):
     bot.update_nested_dict(('Schedules',), structure = {
     })
     bot.update_nested_dict(('Vars',), structure = {
-        'Time': bot._time_now(),
-        'Start Time': bot._time_now(),
+        'Time': bot.now(),
+        'Start Time': bot.now(),
     })
-    bot.add_Task(function = passToModule, kwargs={'bot':bot, 'function_name':'setup',}, name = f"Setup On Ready {bot._time_now()}")
+    bot.add_Task(function = passToModule, kwargs={'bot':bot, 'function_name':'setup',}, name = f"Setup On Ready {bot.now()}")
 
 async def UPDATE(bot):
     await bot.wrap( passToModule, kwargs={'bot':bot, 'function_name':'update',})
@@ -943,7 +940,7 @@ async def UPDATE(bot):
         module_name = 'Nomitron',
         Key = ['Vars', 'Time'], Mode='>', Trigger_Value= bot.now() + 10*bot.sec*speed_mult, sequential_only=True
     )
-    bot.add_Task(function = bot.save_dict_to_yaml, kwargs={}, name = f"Save Dict to YAML {bot._time_now()}")
+    bot.add_Task(function = bot.save_dict_to_yaml, kwargs={}, name = f"Save Dict to YAML {bot.now()}")
 
 async def RELOAD_REFS(bot):
     await bot.wrap( passToModule, kwargs={'bot':bot, 'function_name':'reload_references',})

@@ -30,27 +30,29 @@ async def setup(bot):
             Key = ('Vars','Time'), Mode='>=', Trigger_Value= bot.Modules['Nomitron'].startDate, sequential_only=False
         ) 
 
-
+    day = bot.get('Vars', 'Day') if bot.has('Vars', 'Day') else 0
+    turn = bot.get('Vars', 'Turn') if bot.has('Vars', 'Turn') else 0
+    week = bot.get('Vars', 'Week') if bot.has('Vars', 'Week') else 0
     if 'Start Of Day' not in bot.keys('Schedules'): 
         bot.schedule(
             name = 'Start Of Day',
             method_name = 'onDayStart',
             module_name = 'Schedules',
-            Key = ('Vars','Day'), Mode='==', Trigger_Value= bot.get('Vars','Day') + 1, sequential_only=False
+            Key = ('Vars','Day'), Mode='==', Trigger_Value= day + 1, sequential_only=False
         ) 
     if 'Start Of Turn' not in bot.keys('Schedules'): 
         bot.schedule(
             name = 'Start Of Turn',
             method_name = 'onTurnStart',
             module_name = 'Schedules',
-            Key = ('Vars','Turn'), Mode='==', Trigger_Value= bot.get('Vars','Turn') + 1, sequential_only=False
+            Key = ('Vars','Turn'), Mode='==', Trigger_Value= turn + 1, sequential_only=False
         )
     if 'Start Of Week' not in bot.keys('Schedules'): 
         bot.schedule(
             name = 'Start Of Week',
             method_name = 'onWeekStart',
             module_name = 'Schedules',
-            Key = ('Vars','Week'), Mode='==', Trigger_Value= bot.get('Vars','Week') + 1, sequential_only=False
+            Key = ('Vars','Week'), Mode='==', Trigger_Value= week + 1, sequential_only=False
         ) 
 
     print('   Schedules Created:')
@@ -98,7 +100,7 @@ async def onWeekEnd(bot):
         name = 'End Of Week',
         method_name = 'onWeekEnd',
         module_name = 'Schedules',
-        Key = ('Vars','Time'), Mode='>=', Trigger_Value= weekstart + bot.week, sequential_only=False
+        Key = ('Vars','Time'), Mode='>=', Trigger_Value= weekstart + (week * bot.week), sequential_only=False
     )  
 
     # =============================================
