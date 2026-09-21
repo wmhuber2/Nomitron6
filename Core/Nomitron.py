@@ -13,13 +13,13 @@ os.chdir(path)
 savepath        = join(path, 'Save-State')
 history_folder  = join(savepath, 'History')
 backup_folder   = join(path, 'Backups')
-shutil.rmtree(savepath, ignore_errors=True)
+# shutil.rmtree(savepath, ignore_errors=True)
 if not exists(savepath): os.mkdir(savepath)
 print(savepath, path)
 
 serverName      = "Nomic VIII PTR"
 speed_mult      = 144*5
-startDate       = datetime.datetime( year =2026, month = 9, day = 19, hour = 19, minute=20, tzinfo=timezone)
+startDate       = datetime.datetime( year =2026, month = 9, day = 28-7, hour = 2, minute=0, tzinfo=timezone)
 logFile         = 'Nomitorn_Log.txt' 
 
 SAVE_TO_FOLDER  = '_SAVE TO FOLDER SAVE FLAG'
@@ -126,6 +126,15 @@ class DiscordNomicBot():
         @self.client.event
         async def on_raw_typing(event): await self.Modules['Discord_Module'].on_raw_typing(self, event)
 
+        @self.client.event
+        async def on_guild_channel_create(event): await self.Modules['Discord_Module'].on_guild_channel_mkrm(self, event)
+
+        @self.client.event
+        async def on_guild_channel_delete(event): await self.Modules['Discord_Module'].on_guild_channel_mkrm(self, event)
+
+        @self.client.event
+        async def on_guild_channel_update(before, after): await self.Modules['Discord_Module'].on_guild_channel_edit(self, before, after)
+
         self.client.run(token, reconnect=True, log_handler=None)
 
        
@@ -135,7 +144,7 @@ class DiscordNomicBot():
     def now(self) -> datetime.datetime:
         t = datetime.datetime.now(timezone)
         # t = datetime.datetime(t.year, t.month, t.day, t.hour, t.minute, t.second, t.microsecond, tzinfo = timezone)
-        t = startDate + (t - startDate) * speed_mult
+        t = startDate + ((t - startDate) * speed_mult)
         return t
 
     """
@@ -184,7 +193,7 @@ class DiscordNomicBot():
                         yaml.safe_dump(value, handle, allow_unicode=True, sort_keys=False)
 
         if self.now() - self.last_backup_time > self.day:
-            shutil.move(folder, join(backup_folder, self.now.strftime("%Y-%m-%d %H:00")))
+            shutil.move(folder, join(backup_folder, self.now().strftime("%Y-%m-%d %H:00")))
             self.last_backup_time = self.now()
 
         save_mapping(self.Data, folder)

@@ -216,8 +216,7 @@ async def on_reaction(bot, reaction):
         
         # Proposal Owener From Encoded ID in File Name        
         if reaction['Emoji'] == '👍':
-            bot.set(('User-Proposal-Endorsement', f"{pid}-{propID}"), kwargs={
-            bot.set(('User-Proposal-Endorsement', f"{pid}-{propID}"), kwargs={
+            bot.set(('User-Proposal-Endorsement', f"{pid}-{propID}"), {
                 'PID':pid,'Proposal-ID':propID
             })
         elif reaction['Emoji'] == '👎':
@@ -281,8 +280,7 @@ async def on_message(bot, message):
             old_props = where(bot, 'Queue-Proposals', lambda df: (df['PID'] == pid and df['Queue']=='main' and df['State']=='Queue')) 
             for op in old_props: bot.remove('Queue-Proposals',op)
             propid = f"{pid}-{bot.get('Vars', 'Time')}"
-            bot.set(('Queue-Proposals', propid), kwargs = {
-            bot.set(('Queue-Proposals', propid), kwargs = {
+            bot.set(('Queue-Proposals', propid), {
                 'DOB':bot.get('Vars', 'Time'),
                 'PID':pid,
                 'Body':text,
@@ -291,8 +289,7 @@ async def on_message(bot, message):
                 'Link': message['Link'],
                 'Proposal#': None, 'Vote Close Time': None, 'Vote Start Time': None, 'Channel': None, 'Endorse-MID': None, 'Rank': None,
             })
-            bot.set(('User-Proposal-Endorsement', f"{pid}-{propid}"), kwargs={
-            bot.set(('User-Proposal-Endorsement', f"{pid}-{propid}"), kwargs={
+            bot.set(('User-Proposal-Endorsement', f"{pid}-{propid}"), {
                 'PID':pid,'Proposal-ID':propid
             })
             await bot.Modules['Discord_Module'].add_reaction(bot, chan, mid, '📬' )
@@ -305,8 +302,7 @@ async def on_message(bot, message):
             old_props = where(bot, 'Queue-Proposals', lambda df: (df['PID'] == pid and df['Queue']=='judge' and df['State']=='Queue') )
             for op in old_props: bot.remove('Queue-Proposals',op)
             propid = f"{pid}-{bot.get('Vars', 'Time')}"
-            bot.set(('Queue-Proposals', propid), kwargs = {
-            bot.set(('Queue-Proposals', propid), kwargs = {
+            bot.set(('Queue-Proposals', propid), {
                 'DOB':bot.get('Vars', 'Time'),
                 'PID':pid,
                 'Body':text,
@@ -315,8 +311,7 @@ async def on_message(bot, message):
                 'Link': message['Link'],
                 'Proposal#': None, 'Vote Close Time': None, 'Vote Start Time': None, 'Channel': None, 'Endorse-MID': None, 'Rank': None,
             })
-            bot.set(('User-Proposal-Endorsement', f"{pid}-{propid}"), kwargs={
-            bot.set(('User-Proposal-Endorsement', f"{pid}-{propid}"), kwargs={
+            bot.set(('User-Proposal-Endorsement', f"{pid}-{propid}"), {
                 'PID':pid,'Proposal-ID':propid
             })
             await bot.Modules['Discord_Module'].add_reaction(bot, chan, mid, '✅' )

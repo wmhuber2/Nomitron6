@@ -173,7 +173,7 @@ async def onWeekStart(bot):
         name = 'Start Of Week',
         method_name = 'onWeekStart',
         module_name = 'Schedules',
-        Key = ('Vars','Week'), Mode='==', Trigger_Value= bot.get('Vars','Week') + 1, sequential_only=False
+        Key = ('Vars','Week'), Mode='==', Trigger_Value= week + 1, sequential_only=False
     ) 
 
     # =============================================

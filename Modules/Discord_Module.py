@@ -233,8 +233,8 @@ async def roleDict(bot: Bot, role: discord.Role, player: discord.Member, mode: s
 
 async def memberDict(bot: Bot, player: discord.Member) -> Payload:
     payload = {
-        'PID':member.id,
-        'Nick':member.nick,
+        'PID':player.id,
+        'Nick':player.nick,
     }
     return payload
 
@@ -275,7 +275,7 @@ async def on_reaction(bot: Bot, reaction: Payload) -> None:
                 emoji = reaction['Emoji'], 
                 PID = reaction['Reactor PID'])
         )
-        await on_message_event(bot, payload['MSG'])
+        await on_message_event(bot, reaction['MSG'])
 
 async def on_role_lost(bot: Bot, role: Payload) -> None:
     if hasRole(bot, role['PID'], role['Role']): bot.stage(('Players', role['PID'], 'Roles'), '.remove', role['Role'])
@@ -513,7 +513,7 @@ async def on_raw_typing(bot: Bot, payload: discord.RawTypingEvent) -> None: # No
     if bot.get('Servers',bot.ServerName,'SID') != payload.guild_id: return
     if not isPlayer(bot, payload.user_id): return  
 
-    evernt = await typingDict(bot, payload) 
+    event = await typingDict(bot, payload) 
     bot.schedule( 
         method_name = 'passToModule',
         module_name = 'Nomitron',
@@ -525,7 +525,13 @@ async def on_raw_typing(bot: Bot, payload: discord.RawTypingEvent) -> None: # No
         sequential_only=True,
     )
 
-
+async def on_guild_channel_mkrm(bot: Bot, channel: discord.abc.GuildChannel, mode: str) -> None:
+    if bot.get('Servers',bot.ServerName,'SID') != channel.guild_id: return
+    await reload_references(bot)
+    
+async def on_guild_channel_edit(bot: Bot, before: discord.abc.GuildChannel, after: discord.abc.GuildChannel) -> None:
+    if bot.get('Servers',bot.ServerName,'SID') != before.guild_id: return
+    await reload_references(bot)
 
 
 
