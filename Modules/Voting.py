@@ -47,7 +47,7 @@ async def setup(bot):
     bot.update_nested_dict(('Queue-Proposals',), structure = {})
     bot.update_nested_dict(('User-Proposal-Votes',), structure = {})
     bot.update_nested_dict(('User-Proposal-Endorsement',), structure = {})
-    if not bot.has('Vars', 'Next Proposal Number'): bot.set('Vars', 'Next Proposal Number', kwargs=301)
+    if not bot.has('Vars', 'Next Proposal Number'): bot.set(('Vars', 'Next Proposal Number'), kwargs=301)
 
     for q in Queues:
         bot.add_Task(bot.Modules['Discord_Module'].create_channel, dict(text_channel_name=proposalChanGen(q), catagory_name='BUSINESS', permSetName='Player Only') )
@@ -102,8 +102,8 @@ async def PutToVote(bot):
     propKeys= [bot.get('Queue-Proposals',propID, 'Proposal#') for propID in propIDs]
     sort_propIDs = [x for _, x in sorted(zip(propKeys, propIDs))]
     for propID in sort_propIDs:
-        bot.set('Queue-Proposals',propID, 'State', kwargs='Voting')
-        bot.set('Queue-Proposals',propID, 'Vote Start Time', kwargs=bot.get('Vars', 'Time'))
+        bot.set(('Queue-Proposals',propID, 'State'), kwargs='Voting')
+        bot.set(('Queue-Proposals',propID, 'Vote Start Time'), kwargs=bot.get('Vars', 'Time'))
 
         propNum = bot.get('Queue-Proposals',propID, 'Proposal#' )
         propChannel  = bot.get('Queue-Proposals',propID, 'Channel' )
@@ -134,9 +134,9 @@ async def popProposalMain(bot):
         propIDs= where(bot, 'Queue-Proposals', lambda df: df['Queue'] == 'main' and df['State'] == 'Queue' and df['Rank'] == i)
         if len(propIDs) == 0: continue
 
-        bot.set('Queue-Proposals', propIDs[0], 'State', kwargs="On Deck")
-        bot.set('Queue-Proposals', propIDs[0], 'Channel', kwargs=votingChanGen(init_proposal_val))
-        bot.set('Queue-Proposals', propIDs[0], 'Proposal#', kwargs=init_proposal_val)
+        bot.set(('Queue-Proposals', propIDs[0], 'State'), kwargs="On Deck")
+        bot.set(('Queue-Proposals', propIDs[0], 'Channel'), kwargs=votingChanGen(init_proposal_val))
+        bot.set(('Queue-Proposals', propIDs[0], 'Proposal#'), kwargs=init_proposal_val)
         init_proposal_val += 1
 
     judge_props = where(bot, 'Queue-Proposals', lambda df: df['Queue'] == 'judge' and df['State'] == 'Queue')
@@ -144,12 +144,12 @@ async def popProposalMain(bot):
         propIDs= where(bot, 'Queue-Proposals', lambda df: df['Queue'] == 'judge' and df['State'] == 'Queue' and df['Rank'] == i)
         if len(propIDs) == 0: continue
 
-        bot.set('Queue-Proposals', propIDs[0], 'State', kwargs="On Deck")
-        bot.set('Queue-Proposals', propIDs[0], 'Channel', kwargs=votingChanGen(init_proposal_val))
-        bot.set('Queue-Proposals', propIDs[0], 'Proposal#', kwargs=init_proposal_val)
+        bot.set(('Queue-Proposals', propIDs[0], 'State'), kwargs="On Deck")
+        bot.set(('Queue-Proposals', propIDs[0], 'Channel'), kwargs=votingChanGen(init_proposal_val))
+        bot.set(('Queue-Proposals', propIDs[0], 'Proposal#'), kwargs=init_proposal_val)
         init_proposal_val += 1
 
-    bot.set('Vars', 'Next Proposal Number', kwargs=init_proposal_val)
+    bot.set(('Vars', 'Next Proposal Number'), kwargs=init_proposal_val)
 
 async def popProposalJudge(bot):
     bot.log('Pop Proposal Judge')
@@ -162,23 +162,23 @@ async def popProposalJudge(bot):
         propIDs= where(bot, 'Queue-Proposals', lambda df: df['Queue'] == 'judge' and df['State'] == 'Queue' and df['Rank'] == i)
         if len(propIDs) == 0: continue
 
-        bot.set('Queue-Proposals', propIDs[0], 'State', kwargs="On Deck")
-        bot.set('Queue-Proposals', propIDs[0], 'Channel', kwargs=votingChanGen(init_proposal_val))
-        bot.set('Queue-Proposals', propIDs[0], 'Proposal#', kwargs=init_proposal_val)
+        bot.set(('Queue-Proposals', propIDs[0], 'State'), kwargs="On Deck")
+        bot.set(('Queue-Proposals', propIDs[0], 'Channel'), kwargs=votingChanGen(init_proposal_val))
+        bot.set(('Queue-Proposals', propIDs[0], 'Proposal#'), kwargs=init_proposal_val)
         init_proposal_val += 1
 
-    bot.set('Vars', 'Next Proposal Number', kwargs=init_proposal_val)
+    bot.set(('Vars', 'Next Proposal Number'), kwargs=init_proposal_val)
 
 
 
 async def yay(bot, PID, propID):
-    bot.set('User-Proposal-Votes', f"{PID}-{propID}", kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Yay'})
+    bot.set(('User-Proposal-Votes', f"{PID}-{propID}"), kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Yay'})
 
 async def nay(bot, PID, propID):
-    bot.set('User-Proposal-Votes', f"{PID}-{propID}", kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Nay'})
+    bot.set(('User-Proposal-Votes', f"{PID}-{propID}"), kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Nay'})
 
 async def abstain(bot, PID, propID):
-    bot.set('User-Proposal-Votes', f"{PID}-{propID}", kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Abstain'})
+    bot.set(('User-Proposal-Votes', f"{PID}-{propID}"), kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Abstain'})
 
 
 
@@ -212,7 +212,7 @@ async def on_reaction(bot, reaction):
         
         # Proposal Owener From Encoded ID in File Name        
         if reaction['Emoji'] == '👍':
-            bot.set('User-Proposal-Endorsement', f"{pid}-{propID}", kwargs={
+            bot.set(('User-Proposal-Endorsement', f"{pid}-{propID}"), kwargs={
                 'PID':pid,'Proposal-ID':propID
             })
         elif reaction['Emoji'] == '👎':
@@ -276,7 +276,7 @@ async def on_message(bot, message):
             old_props = where(bot, 'Queue-Proposals', lambda df: (df['PID'] == pid and df['Queue']=='main' and df['State']=='Queue')) 
             for op in old_props: bot.remove('Queue-Proposals',op)
             propid = f"{pid}-{bot.get('Vars', 'Time')}"
-            bot.set('Queue-Proposals', propid, kwargs = {
+            bot.set(('Queue-Proposals', propid), kwargs = {
                 'DOB':bot.get('Vars', 'Time'),
                 'PID':pid,
                 'Body':text,
@@ -285,7 +285,7 @@ async def on_message(bot, message):
                 'Link': message['Link'],
                 'Proposal#': None, 'Vote Close Time': None, 'Vote Start Time': None, 'Channel': None, 'Endorse-MID': None, 'Rank': None,
             })
-            bot.set('User-Proposal-Endorsement', f"{pid}-{propid}", kwargs={
+            bot.set(('User-Proposal-Endorsement', f"{pid}-{propid}"), kwargs={
                 'PID':pid,'Proposal-ID':propid
             })
             await bot.Modules['Discord_Module'].add_reaction(bot, chan, mid, '📬' )
@@ -298,7 +298,7 @@ async def on_message(bot, message):
             old_props = where(bot, 'Queue-Proposals', lambda df: (df['PID'] == pid and df['Queue']=='judge' and df['State']=='Queue') )
             for op in old_props: bot.remove('Queue-Proposals',op)
             propid = f"{pid}-{bot.get('Vars', 'Time')}"
-            bot.set('Queue-Proposals', propid, kwargs = {
+            bot.set(('Queue-Proposals', propid), kwargs = {
                 'DOB':bot.get('Vars', 'Time'),
                 'PID':pid,
                 'Body':text,
@@ -307,7 +307,7 @@ async def on_message(bot, message):
                 'Link': message['Link'],
                 'Proposal#': None, 'Vote Close Time': None, 'Vote Start Time': None, 'Channel': None, 'Endorse-MID': None, 'Rank': None,
             })
-            bot.set('User-Proposal-Endorsement', f"{pid}-{propid}", kwargs={
+            bot.set(('User-Proposal-Endorsement', f"{pid}-{propid}"), kwargs={
                 'PID':pid,'Proposal-ID':propid
             })
             await bot.Modules['Discord_Module'].add_reaction(bot, chan, mid, '✅' )
@@ -338,7 +338,7 @@ async def on_message(bot, message):
             for k, d in message['Attachments'].items():
                 if  '.txt' not in k: text += f"\nAttachment: { message['Attachment Links'][k] }"
             
-            bot.set('Queue-Proposals', propID, 'Body', kwargs=text)
+            bot.set(('Queue-Proposals', propID, 'Body'), kwargs=text)
             await bot.Modules['Discord_Module'].add_reaction(bot, chan, mid, '✅' )
             all_votes = where(bot, 'User-Proposal-Votes', lambda df: (df['Proposal-ID'] == propID)) 
             for vote in all_votes: bot.remove('User-Proposal-Votes',vote)
@@ -362,7 +362,7 @@ async def on_message(bot, message):
 
             if len(deck_propIDs) == 1:
                 propID = deck_propIDs[0]
-                bot.set('Queue-Proposals', propID, 'Body', kwargs=text)
+                bot.set(('Queue-Proposals', propID, 'Body'), kwargs=text)
                 all_votes = where(bot, 'User-Proposal-Votes', lambda df: (df['Proposal-ID'] == propID)) 
 
                 await bot.Modules['Discord_Module'].add_reaction(bot, chan, mid, '✅' )
@@ -412,7 +412,7 @@ def rank_queue(bot):
         # Sorted list of player IDs In order of Suporters, then Age
         sorted_queued_props = [x for _, x in sorted(zip(propRank, propIDs))]
         for i, propID in enumerate(sorted_queued_props):
-            if bot.get('Queue-Proposals', propID, 'Rank') != i: bot.set('Queue-Proposals', propID, 'Rank', kwargs=i)
+            if bot.get('Queue-Proposals', propID, 'Rank') != i: bot.set(('Queue-Proposals', propID, 'Rank'), kwargs=i)
        
 async def update_display(bot): 
 
@@ -441,7 +441,7 @@ async def update_display(bot):
         msgids = await bot.Modules['Discord_Module'].display(bot, queueChanGen(source), msgDictsEx)
         msgids = msgids[len(bot.keys('Players')) - len(msgDicts):]
         for mid, propID in zip(msgids, sort_propIDs):
-            if bot.get('Queue-Proposals', propID, 'Endorse-MID') != mid: bot.set('Queue-Proposals', propID, 'Endorse-MID', kwargs=mid)
+            if bot.get('Queue-Proposals', propID, 'Endorse-MID') != mid: bot.set(('Queue-Proposals', propID, 'Endorse-MID'), kwargs=mid)
 
     chanMade = False
     propIDs  = where(bot, 'Queue-Proposals', lambda df: df['State'] == 'On Deck')
