@@ -85,7 +85,7 @@ async def TallyVotes(bot):
             await bot.Modules['Discord_Module'].send(bot, chan, f"- **Vote Status:**  {propOwnerName}'s Proposal Failed \n" \
                 f"  Tally: {len(yay_votes)} For, {len(nay_votes)} Against.")
     
-        if propChannel is not None:
+        if propChannel is not None and bot.has('Text Channels', propChannel):
             if bot.has('Channel Catagories',propVoteArchiveCat(propNum)):
                 await bot.Modules['Discord_Module'].move_channel_catagory(bot, propChannel, propVoteArchiveCat(propNum))
                 await bot.Modules['Discord_Module'].set_channel_perms(bot, propChannel, 'Locked')
@@ -109,7 +109,7 @@ async def PutToVote(bot):
         propChannel  = bot.get('Queue-Proposals',propID, 'Channel' )
         announceChan = "actions"
         chan = bot.get_Ref('Text Channels', announceChan)
-        await bot.Modules['Discord_Module'].set_channel_perms(bot, propChannel, 'Player Only')
+        if bot.has('Text Channels', propChannel): await bot.Modules['Discord_Module'].set_channel_perms(bot, propChannel, 'Player Only')
         await bot.Modules['Discord_Module'].send(bot, chan, f"Voting is open for Proposal #{propNum}")
        
 

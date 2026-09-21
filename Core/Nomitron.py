@@ -17,8 +17,8 @@ if not exists(savepath): os.mkdir(savepath)
 print(savepath, path)
 
 serverName      = "Nomic VIII PTR"
-speed_mult      = 1
-startDate       = datetime.datetime( year =2026, month = 9, day = 1, hour = 12, minute=0, tzinfo=timezone)
+speed_mult      = 30
+startDate       = datetime.datetime( year =2026, month = 9, day = 21, hour = 0, minute=0, tzinfo=timezone)
 logFile         = 'Nomitorn_Log.txt' 
 
 SAVE_TO_FOLDER  = '_SAVE TO FOLDER SAVE FLAG'

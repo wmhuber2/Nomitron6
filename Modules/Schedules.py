@@ -108,9 +108,10 @@ async def onWeekEnd(bot):
 
 
 async def onDayStart(bot):
-    bot.log(f"START OF DAY {bot.get('Vars', 'Day')} <t:{int(bot.get('Vars', 'Time').timestamp())}:t>")
+    dayStartTime = (bot.get('Vars', 'Day')-1)*bot.day + bot.Modules['Nomitron'].startDate
+    bot.log(f"START OF DAY {bot.get('Vars', 'Day')} <t:{int(dayStartTime.timestamp())}:t>")
 
-    await bot.Modules['Discord_Module'].send(bot, "actions", f"Start Of Day {bot.get('Vars', 'Day')} {bot.get('Vars', 'Weekday')} : <t:{int(bot.get('Vars', 'Time').timestamp())}:f>")
+    await bot.Modules['Discord_Module'].send(bot, "actions", f"Start Of Day {bot.get('Vars', 'Day')} {bot.get('Vars', 'Weekday')} : <t:{int(dayStartTime.timestamp())}:f>")
     
     bot.schedule(
         name = 'Start Of Day',
@@ -125,7 +126,8 @@ async def onDayStart(bot):
     # =============================================
 
 async def onTurnStart(bot):
-    bot.log(f"START OF TURN {bot.get('Vars', 'Turn')} {bot.get('Vars', 'Weekday')}  <t:{int(bot.get('Vars', 'Time').timestamp())}:t>")
+    turnStartTime = (bot.get('Vars', 'Day')-1)*bot.day + bot.Modules['Nomitron'].startDate
+    bot.log(f"START OF TURN {bot.get('Vars', 'Turn')} {bot.get('Vars', 'Weekday')}  <t:{int(turnStartTime.timestamp())}:t>")
 
     await bot.Modules['Discord_Module'].send(bot, "actions", f"Start Of Turn {bot.get('Vars', 'Turn')}")
     bot.schedule(
