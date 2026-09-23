@@ -3,19 +3,19 @@ Main Run Function On Messages
 """
 import sys, urllib, discord, io # type: ignore
 
-def find(bot, text):
+async def find(bot, payload:dict):
+    text = payload['Content'][6:]
     query = text.lower()
     ret_msg = []
 
     if query[ 0] == '"': query = query[1:  ]
     if query[-1] == '"': query = query[ :-1]
 
-    if len(query) <= 2: return "Must Search Words Longer Then 2 Letters"
+    if len(query) <= 2: return await bot.Modules['Discord_Module'].send(bot=bot, target=payload['Channel'], content=f"Must Search Words Longer Then 2 Letters", silent=True)  
     else:
         rulecount = 5
         list_of_rules = bot.where(['Rules', '*', "Text"], lambda x: query in x.lower())
-        if len(list_of_rules) <= 0: return "No Rules Found With That Test"
-
+        if len(list_of_rules) <= 0: return await bot.Modules['Discord_Module'].send(bot=bot, target=payload['Channel'], content=f"Must Search Words Longer Then 2 Letters", silent=True)  
         for rule_key in list_of_rules:
             rule_key = rule_key[1]
             head = bot.get('Rules', rule_key, "Header")
@@ -51,10 +51,13 @@ def find(bot, text):
                 if count <= 0:
                     msg += '...and more in this rule...'
                 ret_msg.append(msg)
-        
-    return ret_msg
+    
+    
+    return await bot.Modules['Discord_Module'].send(bot=bot, target=payload['Channel'], content=ret_msg, silent=True)  
 
-def rule(bot, rulenum):
+async def rule(bot, payload:dict):
+    rulenum = payload['Content'][6:]
+
     if not bot.has('Rules', int(rulenum)):
         return "I couldn't find that rule."
     body = bot.get('Rules', int(rulenum), 'Text')
@@ -64,7 +67,7 @@ def rule(bot, rulenum):
     body = body.replace('\\xe2\\x95\\xa1', ' ')
     body = body.replace('\\xe2\\x94\\x80', ' ')
     
-    return body
+    return await bot.Modules['Discord_Module'].send(bot=bot, target=payload['Channel'], content=body, silent=True)  
 
 """
 Setup Log Parameters and Channel List And Whatever You Need to Check on a Bot Reset.
@@ -97,10 +100,16 @@ async def reload_references(bot):
             except Exception as e:
                 bot.log('ERROR Importing Rules.', e, rule)
         
-async def on_message(bot, message):
-    bot.log(f"Message Received: {message['Content']}")
-    if message['Content'].startswith('!find'):
-        await bot.Modules['Discord_Module'].send(bot=bot, target=message['Channel'], content=find(bot, message['Content'][6:]), silent=True) 
-    elif message['Content'].startswith('!rule'):
-        await bot.Modules['Discord_Module'].send(bot=bot, target=message['Channel'], content=rule(bot, message['Content'][6:]), silent=True) 
-
+async def setup(bot):
+    bot.Modules['Commands'].add_command(bot,
+            name= 'find',
+            description= "search all the rules for specific text",
+            callback = find,
+            checks = ['isSpam'])
+    
+    bot.Modules['Commands'].add_command(bot,
+            name= 'rule',
+            description= "get a rule from it's number",
+            callback = rule,
+            checks = ['isSpam'])
+    

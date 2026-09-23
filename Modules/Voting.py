@@ -44,6 +44,36 @@ queueChanGen        = lambda queue: f"{queue}-queue"
 def where(bot, table, conditional): return [k[1] for k in bot.where((table, '*'), conditional)]
 
 async def setup(bot):
+    bot.Modules['Commands'].add_command(bot,
+        name= 'opt-in-judge',
+        description= 'opt into being a judge',
+        callback = optInJudge,
+        checks = ['isPlayer', 'isActions'])
+
+    bot.Modules['Commands'].add_command(bot,
+        name= 'opt-out-judge',
+        description= 'opt out of being a judge',
+        callback = optOutJudge,
+        checks = ['isPlayer','isActions'])
+     
+    bot.Modules['Commands'].add_command(bot,
+        name= 'pop-prop',
+        description= 'mod only -  pop proposals like start of turn',
+        callback = popProposal,
+        checks = ['isMod'])
+
+    bot.Modules['Commands'].add_command(bot,
+        name= 'open-voting',
+        description= 'mod only -  move things from deck to voting',
+        callback = deckify,
+        checks = ['isMod'])
+
+    bot.Modules['Commands'].add_command(bot,
+        name= 'tally',
+        description= 'mod only -  tally ALL votes',
+        callback = tally,
+        checks = ['isMod'])
+     
     bot.update_nested_dict(('Queue-Proposals',), structure = {})
     bot.update_nested_dict(('User-Proposal-Votes',), structure = {})
     bot.update_nested_dict(('User-Proposal-Endorsement',), structure = {})
@@ -54,7 +84,36 @@ async def setup(bot):
         bot.add_Task(bot.Modules['Discord_Module'].create_channel, dict(text_channel_name=proposalChanGen(q), catagory_name='BUSINESS', permSetName='Player Only') )
         bot.add_Task(bot.Modules['Discord_Module'].create_channel, dict(text_channel_name=queueChanGen(q), catagory_name='BUSINESS', permSetName='Locked') )
     bot.add_Task(bot.Modules['Discord_Module'].create_channel, dict(text_channel_name='deck-edits', catagory_name='BUSINESS', permSetName='Player Only') )
-        
+
+
+
+async def optInJudge(bot, interaction:  discord.Interaction):
+    if type(interaction) is dict:
+        await bot.Modules['Discord_Module'].addRole(bot, interaction["Author PID"], bot.Modules['Discord_Module'].JudgeOptInRole)
+    else:
+        await bot.Modules['Discord_Module'].addRole(bot, interaction.user.id, bot.Modules['Discord_Module'].JudgeOptInRole)
+    await bot.Modules['Discord_Module'].return_resp(bot, interaction, "You have opted in as judge", ephemeral=False)
+
+async def optOutJudge(bot, interaction:  discord.Interaction):
+    if type(interaction) is dict:
+        await bot.Modules['Discord_Module'].removeRole(bot, interaction["Author PID"], bot.Modules['Discord_Module'].JudgeOptInRole)
+    else:
+        await bot.Modules['Discord_Module'].removeRole(bot, interaction.user.id, bot.Modules['Discord_Module'].JudgeOptInRole)
+    await bot.Modules['Discord_Module'].return_resp(bot, interaction, 'You will no longer be considered for judge', ephemeral=0)
+
+async def popProposal(bot, interaction:  discord.Interaction):
+    await bot.Modules['Discord_Module'].return_resp(bot, interaction, f"Popping")
+    await popProposalMain(bot)
+
+async def deckify(bot, interaction:  discord.Interaction):
+    await bot.Modules['Discord_Module'].return_resp(bot, interaction, f"Deckify")
+    await PutToVote(bot)
+
+async def tally(bot, interaction:  discord.Interaction):
+    await bot.Modules['Discord_Module'].return_resp(bot, interaction, f"TallyVotes")
+    await TallyVotes(bot)
+
+
 async def TallyVotes(bot):
     bot.log('Vote Tally')
     # Tally Main Voting Queue

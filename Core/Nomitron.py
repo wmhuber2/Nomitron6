@@ -75,10 +75,9 @@ class DiscordNomicBot():
         self.Data_Changes     = []          # queued nested-data changes
         self.Data_Removes_IDs = []
 
-        self.Tasks = list()                  # Tasks to funcation Call
+        self.Tasks = list()                 # Tasks to funcation Call
         self.Obj_Refs = {}                  # Object references
         self.Modules = {}                   # Imported Modules
-        self.Commands = {}
 
         self.hasSchedulerWarn = self.now() - 10*self.sec
 
@@ -430,7 +429,6 @@ class DiscordNomicBot():
 
         self.set(nested_key, kwargs=updated)
         return deepcopy(updated)
-
     
     @staticmethod
     def _data_value_at(data, path):
