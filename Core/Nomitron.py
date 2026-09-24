@@ -15,6 +15,7 @@ history_folder  = join(savepath, 'History')
 backup_folder   = join(path, 'Backups')
 # shutil.rmtree(savepath, ignore_errors=True)
 if not exists(savepath): os.mkdir(savepath)
+if not exists(backup_folder): os.mkdir(backup_folder)
 print(savepath, path)
 
 serverName      = "Nomic VIII PTR"
@@ -872,7 +873,7 @@ class DiscordNomicBot():
                     minTime = sched['Trigger Value'] 
             if minTime < self.now(): self.Data['Vars']['Time'] = minTime - 1*self.sec
 
-        if seq_toDo or par_toDo: self.log(f'Scheduler Done {self.now()}')
+        if seq_toDo or par_toDo: self.log(f'Scheduler Done {self.Data['Vars']['Time']}')
         elif self.hasSchedulerWarn + 5 * self.sec * speed_mult < self.now(): 
             await asyncio.sleep(0.1)
     

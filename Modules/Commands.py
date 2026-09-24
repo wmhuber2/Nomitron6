@@ -21,18 +21,6 @@ def add_command(bot, name, description, callback, checks):
         'checks': checks
     }
 
-async def on_message(bot, message):
-    if message['Content'][0] == '!':
-        cmdKey = message['Content'].split(' ')[0][1:]
-        if cmdKey in bot.Commands.keys():
-            for check in bot.Commands[cmdKey]['checks']:
-                checkResult = await checks[check](bot, message)
-                if not checkResult: 
-                    return await bot.Modules['Discord_Module'].add_reaction(bot, msgid = message['MID'], source_id = message['Channel'], emoji = '❌')
-            args = [message,] + message['Content'].split(' ')[1:]
-
-            await bot.Commands[cmdKey]['callback'](bot,*args)
-
 async def isMod(bot, interaction: discord.Interaction):
     if type(interaction) is dict:            
         oktouse = bot.Modules['Discord_Module'].isModerator(bot, interaction['Author PID'])
@@ -61,9 +49,9 @@ async def isActions(bot, interaction: discord.Interaction):
     
 async def isSpam(bot, interaction: discord.Interaction):
     if type(interaction) is dict:            
-        return ( await isDM(interaction) ) or 'spam' in interaction['Channel']
+        return ( await isDM(bot, interaction) ) or 'spam' in interaction['Channel']
     else:
-        return ( await isDM(interaction) ) or 'spam' in interaction.channel.name
+        return ( await isDM(bot, interaction) ) or 'spam' in interaction.channel.name
     
 checks = {}
 checks['isMod'] = isMod
@@ -77,7 +65,7 @@ async def help(bot, interaction: discord.Interaction):
     txt = "Your Available Commands:\n - Use !COMMAND to activate them.\n"
     commands = sorted(bot.Commands.values(), key=lambda x: x['name'])
     
-    if await checks['isMod'](interaction):
+    if await checks['isMod'](bot, interaction):
         txt += "Mod Commands:\n"
         for cmd in commands:
             if ('isMod' in cmd['checks']):
@@ -94,10 +82,8 @@ async def help(bot, interaction: discord.Interaction):
 async def data(bot, interaction: discord.Integration, player:discord.Member):
     pid = player.id
     text  = f"Player : {bot.get('Users',pid, 'Name')}\n"
+    text  = f"Player : {bot.get('Users',pid, 'Roles')}\n"
     text += f"Points : {bot.get('Users',pid, 'Points')}\n"
-    text += f"Balls  : {bot.get('Users',pid, 'Balls')}\n"
-    text += f"Balls left to Gain by BLAM! : {bot.get('Users',pid,'BLAM Balls Left To Gain')}\n"
-    text += f"Souls:\n" + (" - ".join( [ str(bot.get('Users',p, 'Name')) for p in bot.where( 'Souls', lambda df: df['Owner-PID'] == pid) ]))
     await bot.Modules['Discord_Module'].return_resp(bot, interaction, text, ephemeral=True)
 
 async def roll(bot, interaction: discord.Interaction, dice :str):
@@ -115,6 +101,7 @@ async def dance(bot, interaction: discord.Interaction,):
     await bot.Modules['Discord_Module'].return_resp(bot, interaction, "https://media.tenor.com/3SSi0qLshgkAAAAC/time-to-party-dance.gif")
 
 async def echo(bot, interaction: discord.Interaction, text :str): 
+
     await bot.Modules['Discord_Module'].return_resp(bot, interaction, text) 
 
 
@@ -220,8 +207,19 @@ async def setup(bot):
         checks = [])
 
 
+
 async def on_message(bot, message):
-    
+    if message['Content'][0] == '!':
+        cmdKey = message['Content'].split(' ')[0][1:]
+        if cmdKey in bot.Commands.keys():
+            for check in bot.Commands[cmdKey]['checks']:
+                checkResult = await checks[check](bot, message)
+                if not checkResult: 
+                    return await bot.Modules['Discord_Module'].add_reaction(bot, msgid = message['MID'], dm_pid_or_channel_name = message['Channel'], emoji = '❌')
+            args = [message,] + message['Content'].split(' ')[1:]
+
+            await bot.Commands[cmdKey]['callback'](bot,*args)
+
     if '?' in message['Content'] and '!' == message['Content'][0]:
         options = [[
          "It is certain.",

@@ -270,7 +270,7 @@ async def on_reaction(bot: Bot, reaction: Payload) -> None:
         await bot.wrap( 
             remove_reaction, dict(
                 bot=bot, 
-                source_id = reaction['MSG']['Channel'], 
+                dm_pid_or_channel_name = reaction['MSG']['Channel'], 
                 msgid = reaction['MSG']['MID'], 
                 emoji = reaction['Emoji'], 
                 PID = reaction['Reactor PID'])
