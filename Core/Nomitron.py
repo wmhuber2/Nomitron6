@@ -1,5 +1,5 @@
 import time, traceback, re, yaml, socket, pytz, inspect, discord, string, logging
-import sys, asyncio, os, importlib, glob, datetime, random, sys, datetime, shutil
+import asyncio, os, importlib, glob, random, sys, datetime, shutil, signal
 from os.path import exists, join, basename
 from copy import deepcopy
 
@@ -140,7 +140,11 @@ class DiscordNomicBot():
         @self.client.event
         async def on_guild_channel_update(before, after): await self.Modules['Discord_Module'].on_guild_channel_edit(self, before, after)
 
+        # shutdown sequence
+        signal.signal(signal.SIGTERM, lambda *args: signal.raise_signal(signal.SIGINT))
         self.client.run(token, reconnect=True, log_handler=None)
+        self.log('Shutting down, saving')
+        self.save_dict_to_yaml()
 
        
     """
@@ -197,6 +201,7 @@ class DiscordNomicBot():
                     with open(join(destination, f'{key}.yaml'), 'w', encoding='utf-8') as handle:
                         yaml.safe_dump(value, handle, allow_unicode=True, sort_keys=False)
 
+        self._write_history()
         if self.now() - self.last_backup_time > self.day:
             shutil.copytree(folder, join(backup_folder, self.now().strftime("%Y-%m-%d %H:00")), dirs_exist_ok=True)
             self.last_backup_time = self.now()
@@ -339,9 +344,12 @@ class DiscordNomicBot():
         through that commit. If ``errors`` is a list, changes that fail to
         replay, and journal files that don't start where the previous one
         ended, are recorded there instead of raising.
-        History is stored exclusively in the external journal.
+        History is stored exclusively in the external journal, plus commits
+        queued since the last save.
         """
         journals = self._journal_files()
+        if getattr(self, '_pending_commits', None):
+            journals.append(('<not yet saved>', {'base': self._journal_value(self._pending_base), 'commits': self._pending_commits}))
         if not journals:
             return {}
         rebuilt = deepcopy(journals[0][1].get('base', {}))
@@ -735,32 +743,36 @@ class DiscordNomicBot():
         return data
 
     def _append_history_commit(self, commit, base_state):
+        """Queue a commit for the journal; save_dict_to_yaml writes queued commits along with the state."""
+        if not getattr(self, '_pending_commits', None):
+            self._pending_commits = []
+            self._pending_base = base_state
+        self._pending_commits.append(self._journal_value(commit))
+
+    def _write_history(self):
+        """Write queued commits to the journal. If the write fails they stay queued for the next save."""
+        pending = getattr(self, '_pending_commits', None)
+        if not pending:
+            return
         os.makedirs(history_folder, exist_ok=True)
         filename, journal = getattr(self, '_history_cache', None) or (None, None)
         self._history_cache = None
         if filename is None or not exists(filename):
             filename, journal = None, None
-            files = glob.glob(join(history_folder, '*.yaml'))
-            if files:
-                loaded = []
-                for candidate in files:
-                    with open(candidate, 'r', encoding='utf-8') as handle:
-                        candidate_journal = yaml.load(handle, Loader=getattr(yaml, 'CSafeLoader', yaml.SafeLoader)) or {}
-                    if candidate_journal.get('commits'):
-                        loaded.append((candidate, candidate_journal))
-                if loaded:
-                    filename, journal = max(loaded, key=lambda item: item[1]['commits'][-1]['time'])
+            journals = self._journal_files()
+            if journals:
+                filename, journal = journals[-1]
         if not journal:
-            journal = {'schema': 1, 'base': self._journal_value(base_state), 'commits': []}
+            journal = {'schema': 1, 'base': self._journal_value(self._pending_base), 'commits': []}
 
         commits = journal.setdefault('commits', [])
         if commits:
             first_time = commits[0]['time']
-            span = commit['time'] - first_time
+            span = pending[0]['time'] - first_time
             if (len(commits) >= 500 and span >= self.day) or span >= datetime.timedelta(days=30):
-                journal = {'schema': 1, 'base': self._journal_value(base_state), 'commits': []}
+                journal = {'schema': 1, 'base': self._journal_value(self._pending_base), 'commits': []}
                 filename = None
-        journal['commits'].append(self._journal_value(commit))
+        journal['commits'].extend(pending)
         start = journal['commits'][0]['time']
         end = journal['commits'][-1]['time']
         new_filename = join(history_folder, f'{start:%Y%b%d}_to_{end:%Y%b%d}.yaml')
@@ -769,12 +781,13 @@ class DiscordNomicBot():
             with open(temporary, 'w', encoding='utf-8') as handle:
                 yaml.dump(journal, handle, Dumper=getattr(yaml, 'CSafeDumper', yaml.SafeDumper), allow_unicode=True, sort_keys=False)
         except Exception as e:
-            self.log(f'Error writing journal to {temporary}: {e!r} (commit {commit["id"]} not journaled)', mode='error')
+            self.log(f'Error writing journal to {temporary}: {e!r} ({len(pending)} commit(s) kept)', mode='error')
             if exists(temporary): os.remove(temporary)
             return
         os.replace(temporary, new_filename)
         self._history_cache = (new_filename, journal)
-        self._last_commit_id = commit['id']
+        self._pending_commits = []
+        self._last_commit_id = pending[-1]['id']
         if filename and os.path.abspath(filename) != os.path.abspath(new_filename) and exists(filename):
             os.remove(filename)
 
