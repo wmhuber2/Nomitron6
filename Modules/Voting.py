@@ -269,6 +269,9 @@ async def on_reaction(bot, reaction):
     if len(propID) == 1 and "-queue" in chan and reaction['Mode'] == 'add':
         propID = propID[0]
         await bot.Modules['Discord_Module'].remove_reaction(bot, chan, mid, reaction['Emoji'], pid)
+        if not bot.Modules['Discord_Module'].isPlayer(bot, pid):
+            await bot.Modules['Discord_Module'].return_resp(bot, pid, "You are not a player and thus cannot endorse proposals")
+            return
         if not bot.Modules['Discord_Module'].isActive(bot, pid):
             await bot.Modules['Discord_Module'].return_resp(bot, pid, "You are inactive and thus cannot endorse proposals")
             return 

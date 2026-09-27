@@ -79,11 +79,15 @@ async def help(bot, interaction: discord.Interaction):
 
     await bot.Modules['Discord_Module'].return_resp(bot, interaction, txt, wrap=['```diff\n', '```'])
     
-async def data(bot, interaction: discord.Integration, player:discord.Member):
-    pid = player.id
-    text  = f"Player : {bot.get('Users',pid, 'Name')}\n"
-    text  = f"Player : {bot.get('Users',pid, 'Roles')}\n"
-    text += f"Points : {bot.get('Users',pid, 'Points')}\n"
+async def data(bot, interaction: discord.Integration, player = None):
+    if type(interaction) is dict:
+        pid = interaction['Author PID'] if player is None else ''.join([char for char in player if char.isdigit()])
+    else:
+        pid = interaction.user.id if player is None else player.id
+    if pid == '' or not bot.has('Players', int(pid)): return await bot.Modules['Discord_Module'].return_resp(bot, interaction, "I couldn't find that player.", ephemeral=True)
+    pid = int(pid)
+    text  = f"Player : {bot.get('Players',pid, 'Name')}\n"
+    text += f"Roles : {', '.join(bot.get('Players',pid, 'Roles'))}\n"
     await bot.Modules['Discord_Module'].return_resp(bot, interaction, text, ephemeral=True)
 
 async def roll(bot, interaction: discord.Interaction, dice :str):
@@ -100,9 +104,9 @@ async def ping(bot, interaction: discord.Interaction,):
 async def dance(bot, interaction: discord.Interaction,): 
     await bot.Modules['Discord_Module'].return_resp(bot, interaction, "https://media.tenor.com/3SSi0qLshgkAAAAC/time-to-party-dance.gif")
 
-async def echo(bot, interaction: discord.Interaction, text :str): 
+async def echo(bot, interaction: discord.Interaction, *text):
 
-    await bot.Modules['Discord_Module'].return_resp(bot, interaction, text) 
+    await bot.Modules['Discord_Module'].return_resp(bot, interaction, ' '.join(text))
 
 
 async def clear(bot, interaction: discord.Interaction):
@@ -136,13 +140,13 @@ async def sudo(bot, interaction:  discord.Interaction):
             await bot.Modules['Discord_Module'].addRole(bot, interaction.user.id, 'Moderator')
     await bot.Modules['Discord_Module'].return_resp(bot, interaction, 'Done', ephemeral=1)
 
-async def playerWithRoles(bot, interaction:  discord.Interaction, role: discord.Role):
+async def playerWithRoles(bot, interaction:  discord.Interaction, *role):
     if type(interaction) is dict:
-        roleName = role
+        roleName = ' '.join(role)
     else:
-        roleName = role.name
+        roleName = role[0].name
     pids = bot.Modules['Discord_Module'].usersWithRole(bot, roleName)
-    names = [bot.get('Users', p,'Name') for p in pids]
+    names = [bot.get('Players', p,'Name') for p in pids]
     
     await bot.Modules['Discord_Module'].return_resp(bot, interaction, 'Players:\n'+('\n'.join(names)), ephemeral=False)
 

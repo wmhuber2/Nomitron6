@@ -281,7 +281,7 @@ async def on_role_lost(bot: Bot, role: Payload) -> None:
     if hasRole(bot, role['PID'], role['Role']): bot.stage(('Players', role['PID'], 'Roles'), '.remove', role['Role'])
 
 async def on_role_gain(bot: Bot, role: Payload) -> None:
-    if not hasRole(bot, role['PID'], role['Role']): bot.stage((('Players', role['PID'], 'Roles'), 'append', role['Role']))
+    if not hasRole(bot, role['PID'], role['Role']): bot.stage(('Players', role['PID'], 'Roles'), 'append', role['Role'])
 
 async def on_typing(bot: Bot, event: Payload) -> None: pass
 

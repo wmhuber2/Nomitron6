@@ -3,19 +3,19 @@ Main Run Function On Messages
 """
 import sys, urllib, discord, io # type: ignore
 
-async def find(bot, payload:dict):
+async def find(bot, payload:dict, *args):
     text = payload['Content'][6:]
     query = text.lower()
     ret_msg = []
 
-    if query[ 0] == '"': query = query[1:  ]
-    if query[-1] == '"': query = query[ :-1]
+    if query[ :1] == '"': query = query[1:  ]
+    if query[-1:] == '"': query = query[ :-1]
 
     if len(query) <= 2: return await bot.Modules['Discord_Module'].send(bot=bot, target=payload['Channel'], content=f"Must Search Words Longer Then 2 Letters", silent=True)  
     else:
         rulecount = 5
         list_of_rules = bot.where(['Rules', '*', "Text"], lambda x: query in x.lower())
-        if len(list_of_rules) <= 0: return await bot.Modules['Discord_Module'].send(bot=bot, target=payload['Channel'], content=f"Must Search Words Longer Then 2 Letters", silent=True)  
+        if len(list_of_rules) <= 0: return await bot.Modules['Discord_Module'].send(bot=bot, target=payload['Channel'], content=f"No rules found containing that text", silent=True)  
         for rule_key in list_of_rules:
             rule_key = rule_key[1]
             head = bot.get('Rules', rule_key, "Header")
@@ -55,11 +55,11 @@ async def find(bot, payload:dict):
     
     return await bot.Modules['Discord_Module'].send(bot=bot, target=payload['Channel'], content=ret_msg, silent=True)  
 
-async def rule(bot, payload:dict):
-    rulenum = payload['Content'][6:]
+async def rule(bot, payload:dict, *args):
+    rulenum = payload['Content'][6:].strip()
 
-    if not bot.has('Rules', int(rulenum)):
-        return "I couldn't find that rule."
+    if not rulenum.isdigit() or not bot.has('Rules', int(rulenum)):
+        return await bot.Modules['Discord_Module'].send(bot=bot, target=payload['Channel'], content="I couldn't find that rule.", silent=True)
     body = bot.get('Rules', int(rulenum), 'Text')
     bot.log(f"Found Rule {rulenum}")
     body = body.replace('\\xe2\\x95\\x9e', ' ')
@@ -81,7 +81,7 @@ async def reload_references(bot):
         for rule in bot.keys('Rules'):
             if rule not in rule_found: bot.remove('Rules', rule)
 
-    with urllib.request.urlopen('https://gitlab.com/nomicgame/nomic-viii/-/raw/master/rules-r.md?ref_type=heads') as response:
+    with urllib.request.urlopen('https://gitlab.com/nomicgame/nomic-ix/-/raw/master/rules.md?ref_type=heads') as response:
         rules = response.read().decode("utf-8").replace('&nbsp;~','').replace('\r','').replace('\n ','\n').replace('\n\n ','\n')
         ruletxt = rules.split("\n## ")[1:]
         for rule in ruletxt:
