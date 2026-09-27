@@ -23,8 +23,12 @@ speed_mult      = 1
 startDate       = datetime.datetime( year =2026, month = 9, day = 28-7, hour = 2, minute=0, tzinfo=timezone)
 logFile         = 'Nomitorn_Log.txt' 
 
+history_mode    = next((arg.split('=', 1)[1] for arg in sys.argv if arg.startswith('--history=')), 'strict')
+
 SAVE_TO_FOLDER  = '_SAVE TO FOLDER SAVE FLAG'
 OIK             = 'Object Index Key'
+HISTORY_KEY     = 'HISTORY_KEY.yaml'
+HISTORY_IGNORE  = [('Schedules',), ('Vars', 'Time')]
 
 '''
 Implement Modules By Placing Module Python File In Same Directory
@@ -104,6 +108,7 @@ class DiscordNomicBot():
        
         self.load_dict_from_yaml()
         self.reload_modules()
+        self.check_history()
 
         @self.client.event
         async def on_ready(): await self.wrap( self.on_ready )
@@ -193,10 +198,12 @@ class DiscordNomicBot():
                         yaml.safe_dump(value, handle, allow_unicode=True, sort_keys=False)
 
         if self.now() - self.last_backup_time > self.day:
-            shutil.move(folder, join(backup_folder, self.now().strftime("%Y-%m-%d %H:00")))
+            shutil.copytree(folder, join(backup_folder, self.now().strftime("%Y-%m-%d %H:00")), dirs_exist_ok=True)
             self.last_backup_time = self.now()
 
         save_mapping(self.Data, folder)
+        with open(join(folder, HISTORY_KEY), 'w', encoding='utf-8') as handle:
+            yaml.safe_dump(getattr(self, '_last_commit_id', None), handle)
         self.last_save_time = self.now()
 
     def load_dict_from_yaml(self):
@@ -219,7 +226,7 @@ class DiscordNomicBot():
                     result[entry.name] = load_mapping(entry.path)
                     result[entry.name][SAVE_TO_FOLDER] = True
                 elif entry.is_file() and entry.name.endswith('.yaml'):
-                    if entry.name == 'HISTORY_KEY.yaml':
+                    if entry.name == HISTORY_KEY:
                         continue
                     key = entry.name.replace('.yaml','')
                     if key in result:
@@ -291,16 +298,28 @@ class DiscordNomicBot():
         base_state = deepcopy(self.Data)
         commit_time = self._next_history_key()
         for change in changes:
-            self._apply_data_change(self.Data, change)
-            committed.append({
+            record = {
                 'operation': change['operation'],
                 'path': list(change['path']),
                 'args': deepcopy(change.get('args', ())),
                 'kwargs': deepcopy(change.get('kwargs', {})),
                 'source': change['source'],
-            })
+            }
+            try:
+                yaml.dump(self._journal_value(record), Dumper=getattr(yaml, 'CSafeDumper', yaml.SafeDumper))
+                self._apply_data_change(self.Data, change)
+            except Exception as e:
+                self.log(f"!!! Error In merge_commit: skipped {record['operation']} {record['path']} from {record['source']}: {e!r}", mode='error')
+                # Undo anything the failed change half-applied.
+                self.Data.clear()
+                self.Data.update(deepcopy(base_state))
+                for done in committed: self._apply_data_change(self.Data, done)
+                continue
+            committed.append(record)
 
         self.Data_Changes = []
+        if not committed:
+            return []
         commit = {
             'id': commit_time,
             'time': commit_time,
@@ -311,29 +330,139 @@ class DiscordNomicBot():
         self._append_history_commit(commit, base_state)
         return committed
     
-    def rebuild_state(self, *, until=None):
+    def rebuild_state(self, *, until=None, errors=None):
         """Rebuild a logical data state from root and nested histories.
 
-        ``until`` accepts a history timestamp and rebuilds through that event.
+        Commits are replayed in the order they were written, not by time, since
+        test runs with a different ``startDate`` put earlier times later on.
+        ``until`` accepts a commit id, or a history timestamp, and rebuilds
+        through that commit. If ``errors`` is a list, changes that fail to
+        replay, and journal files that don't start where the previous one
+        ended, are recorded there instead of raising.
         History is stored exclusively in the external journal.
         """
-        rebuilt = self._journal_base()
+        journals = self._journal_files()
+        if not journals:
+            return {}
+        rebuilt = deepcopy(journals[0][1].get('base', {}))
+        ids = {str(commit['id']) for _, journal in journals for commit in journal['commits']}
 
-        events = self._journal_events()
-        for event in events:
-            event_time = event.get('time', event.get('timestamp'))
-            if until is not None and str(event_time) > str(until):
-                break
-            self._apply_data_change(rebuilt, event)
+        for index, (filename, journal) in enumerate(journals):
+            if index and errors is not None:
+                gaps = []
+                self._find_data_differences(tuple(), self._comparable(rebuilt), self._comparable(journal.get('base', {})), gaps)
+                if gaps:
+                    errors.append(f"{basename(filename)} starts from a different state than the journal before it ends with, at {[list(d['path']) for d in gaps[:5]]}")
+            for commit in journal['commits']:
+                if until is not None and str(until) not in ids and str(commit['time']) > str(until):
+                    return rebuilt
+                for change in commit.get('changes', []):
+                    try:
+                        self._apply_data_change(rebuilt, change)
+                    except Exception as e:
+                        if errors is None: raise
+                        errors.append(f"{basename(filename)} commit {commit['id']}: {change.get('operation')} {change.get('path')} failed: {e!r}")
+                if until is not None and str(commit['id']) == str(until):
+                    return rebuilt
         return rebuilt
     def compare_rebuild_to_current(self, rebuilt=None, *, base_state=None, until=None):
-        """Return every path where a rebuilt state differs from current data."""
+        """Return every path where a rebuilt state differs from current data.
+
+        Paths in ``HISTORY_IGNORE`` and structural flags are not compared.
+        """
         if rebuilt is None:
             rebuilt = self.rebuild_state(until=until)
-        current = deepcopy(self.Data)
         differences = []
-        self._find_data_differences(tuple(), rebuilt, current, differences)
+        self._find_data_differences(tuple(), self._comparable(rebuilt), self._comparable(self.Data), differences)
         return differences
+
+    def check_history(self):
+        """Check the saved state against the journal at startup.
+
+        ``HISTORY_KEY.yaml`` names the last commit the saved state includes.
+        Commits journaled after it (made after the last save) are applied on
+        top, then the state is compared with a full rebuild. On a difference
+        the bot logs it and exits, unless started with ``--history=ignore``
+        (carry on), ``--history=accept-state`` (journal a correction so the
+        history matches the saved state) or ``--history=accept-history``
+        (replace the state with the rebuild).
+        """
+        journals = self._journal_files()
+        commits = [commit for _, journal in journals for commit in journal['commits']]
+        self._last_commit_id = commits[-1]['id'] if commits else None
+        if not commits:
+            self.log('History check: no journal yet, skipped')
+            return
+
+        key = None
+        if exists(join(savepath, HISTORY_KEY)):
+            with open(join(savepath, HISTORY_KEY), 'r', encoding='utf-8') as handle:
+                key = yaml.safe_load(handle)
+        errors = []
+        ids = [str(commit['id']) for commit in commits]
+        pending = []
+        if key is not None and str(key) not in ids:
+            errors.append(f'The saved state is from commit {key}, which is not in the journal')
+        elif key is not None:
+            pending = commits[ids.index(str(key)) + 1:]
+        for commit in pending:
+            for change in commit.get('changes', []):
+                try:
+                    self._apply_data_change(self.Data, change)
+                except Exception as e:
+                    errors.append(f"Commit {commit['id']} (after the last save): {change.get('operation')} {change.get('path')} failed: {e!r}")
+        if pending:
+            self.log(f'History check: applied {len(pending)} commit(s) made after the last save')
+
+        rebuilt = self.rebuild_state(errors=errors)
+        differences = self.compare_rebuild_to_current(rebuilt)
+        for line in errors:
+            self.log(f'History check: {line}', mode='warn')
+        if not differences:
+            self.log(f'History check: saved state matches the journal ({len(commits)} commits)')
+            if pending: self.save_dict_to_yaml()
+            return
+
+        self.log(f'History check: {len(differences)} difference(s) between the saved state and the journal', mode='warn')
+        for d in differences[:50]:
+            self.log(f"  {list(d['path'])}\n      journal: {repr(d['rebuild'])[:300]}\n      saved:   {repr(d['current'])[:300]}", mode='warn')
+        if len(differences) > 50:
+            self.log(f'  ... and {len(differences) - 50} more', mode='warn')
+
+        if history_mode == 'ignore':
+            self.log('History check: continuing anyway (--history=ignore)', mode='warn')
+        elif history_mode == 'accept-state':
+            changes = []
+            for d in differences:
+                path = list(d['path'])
+                if self.has(path): changes.append({'operation': 'set', 'path': path, 'args': [self.get(path)], 'kwargs': {}})
+                else:              changes.append({'operation': 'delete', 'path': path, 'args': [], 'kwargs': {}})
+                changes[-1]['source'] = 'History check (--history=accept-state)'
+            commit_time = self._next_history_key()
+            self._append_history_commit({
+                'id': commit_time,
+                'time': commit_time,
+                'source': 'History check (--history=accept-state)',
+                'message': 'Correction: accept the saved state',
+                'changes': changes,
+            }, rebuilt)
+            self.log(f'History check: journaled {len(changes)} correction(s) to match the saved state', mode='warn')
+        elif history_mode == 'accept-history':
+            # The scheduler's own entries aren't journaled, so keep the saved ones.
+            for path in HISTORY_IGNORE:
+                if self.has(path):
+                    self._apply_data_change(rebuilt, {'operation': 'set', 'path': path, 'args': [self.get(path, include_flags=True)]})
+                else:
+                    try: self._apply_data_change(rebuilt, {'operation': 'delete', 'path': path})
+                    except (KeyError, IndexError, TypeError): pass
+            self.Data.clear()
+            self.Data.update(rebuilt)
+            self.log('History check: replaced the saved state with the rebuild (--history=accept-history)', mode='warn')
+        else:
+            self.log('History check: exiting. Fix the journal or Save-State, or restart with '
+                     '--history=ignore, --history=accept-state or --history=accept-history', mode='warn')
+            sys.exit(1)
+        self.save_dict_to_yaml()
 
     def get(self, *nested_key, include_flags=False):
         """Return an isolated copy of a value stored in ``self.Data``.
@@ -581,35 +710,29 @@ class DiscordNomicBot():
             return {DiscordNomicBot._journal_value(child) for child in value}
         return deepcopy(value)
 
-    def _journal_events(self):
-        events = []
-        if not os.path.isdir(history_folder):
-            return events
-        for filename in sorted(glob.glob(join(history_folder, '*.yaml'))):
-            with open(filename, 'r', encoding='utf-8') as handle:
-                journal = yaml.safe_load(handle) or {}
-            for commit in journal.get('commits', []):
-                for sequence, change in enumerate(commit.get('changes', [])):
-                    event = deepcopy(change)
-                    event['time'] = commit['time']
-                    event['timestamp'] = commit['id']
-                    event['sequence'] = sequence
-                    events.append(event)
-        return sorted(events, key=lambda event: (event['time'], event['sequence']))
-
-    def _journal_base(self):
-        if not os.path.isdir(history_folder):
-            return {}
+    def _journal_files(self):
+        """Return ``(filename, journal)`` for each journal with commits, oldest first."""
         journals = []
+        if not os.path.isdir(history_folder):
+            return journals
         for filename in glob.glob(join(history_folder, '*.yaml')):
             with open(filename, 'r', encoding='utf-8') as handle:
-                journal = yaml.safe_load(handle) or {}
+                journal = yaml.load(handle, Loader=getattr(yaml, 'CSafeLoader', yaml.SafeLoader)) or {}
             if journal.get('commits'):
-                journals.append(journal)
-        if not journals:
-            return {}
-        journal = min(journals, key=lambda item: item['commits'][0]['time'])
-        return deepcopy(journal.get('base', {}))
+                journals.append((filename, journal))
+        return sorted(journals, key=lambda item: item[1]['commits'][0]['time'])
+
+    @classmethod
+    def _comparable(cls, data):
+        """Copy ``data`` without flags or ``HISTORY_IGNORE`` paths, for comparing with a rebuild."""
+        data = cls._without_flags(data)
+        for path in HISTORY_IGNORE:
+            try:
+                parent, key = cls._parent_and_key(data, path)
+                del parent[key]
+            except (KeyError, IndexError, TypeError):
+                pass
+        return data
 
     def _append_history_commit(self, commit, base_state):
         os.makedirs(history_folder, exist_ok=True)
@@ -642,14 +765,16 @@ class DiscordNomicBot():
         end = journal['commits'][-1]['time']
         new_filename = join(history_folder, f'{start:%Y%b%d}_to_{end:%Y%b%d}.yaml')
         temporary = new_filename + '.tmp'
-        with open(temporary, 'w', encoding='utf-8') as handle:
-            try:
+        try:
+            with open(temporary, 'w', encoding='utf-8') as handle:
                 yaml.dump(journal, handle, Dumper=getattr(yaml, 'CSafeDumper', yaml.SafeDumper), allow_unicode=True, sort_keys=False)
-                self._history_cache = (new_filename, journal)
-            except Exception as e:
-                self.log(f'Error writing journal to {temporary}: {e} \n {journal}', mode='error')
-                # raise e
+        except Exception as e:
+            self.log(f'Error writing journal to {temporary}: {e!r} (commit {commit["id"]} not journaled)', mode='error')
+            if exists(temporary): os.remove(temporary)
+            return
         os.replace(temporary, new_filename)
+        self._history_cache = (new_filename, journal)
+        self._last_commit_id = commit['id']
         if filename and os.path.abspath(filename) != os.path.abspath(new_filename) and exists(filename):
             os.remove(filename)
 
@@ -800,15 +925,16 @@ class DiscordNomicBot():
     async def _runTasks(self, commit_msg):
         while(self.lock): await asyncio.sleep(0.5)
         self.lock = True
-        
-        while len(self.Tasks) != 0:
-            tasksToRun, self.Tasks = self.Tasks, list()
-            for toDo in tasksToRun:
-                self.stage_source = f"{toDo['name']} - {toDo['function']}({', '.join(toDo['kwargs'])})"
-                await self.wrap(toDo['function'], kwargs=toDo['kwargs'], timeout=toDo['timeout'])
-            self.merge_commit(message=commit_msg)
-
-        self.lock = False
+        try:
+            while len(self.Tasks) != 0:
+                tasksToRun, self.Tasks = self.Tasks, list()
+                for toDo in tasksToRun:
+                    self.task_name = toDo['name']
+                    self.stage_source = f"{toDo['name']} - {toDo['function']}({', '.join(toDo['kwargs'])})"
+                    await self.wrap(toDo['function'], kwargs=toDo['kwargs'], timeout=toDo['timeout'])
+                self.merge_commit(message=commit_msg)
+        finally:
+            self.lock = False
   
     """
     Scheduler Check Process (Updated to Nomitron 6)
@@ -923,10 +1049,11 @@ class DiscordNomicBot():
 Pass a command to its respective module. (Updated to Nomitron 5)
 """   
 def passToModule(bot, function_name, kwargs={}, timeout = 10): # Done
+    task_name = f"{bot.task_name} > {function_name}" if getattr(bot, 'task_name', None) else None
     # Search For Duplicates Modules
     for name, mod in bot.Modules.items():
         if hasattr(mod, function_name):
-            bot.add_Task( getattr(mod, function_name), kwargs=kwargs, timeout = timeout )
+            bot.add_Task( getattr(mod, function_name), kwargs=kwargs, name = task_name, timeout = timeout )
 
 
 
