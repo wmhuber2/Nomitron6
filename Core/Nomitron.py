@@ -1,4 +1,4 @@
-import time, traceback, re, yaml, socket, pytz, inspect, discord, string, logging
+import time, traceback, re, yaml, socket, pytz, inspect, discord, string, logging, hashlib
 import asyncio, os, importlib, glob, random, sys, datetime, shutil, signal
 from os.path import exists, join, basename
 from copy import deepcopy
@@ -23,12 +23,10 @@ speed_mult      = 1
 startDate       = datetime.datetime( year =2026, month = 9, day = 28-7, hour = 2, minute=0, tzinfo=timezone)
 logFile         = 'Nomitorn_Log.txt' 
 
-history_mode    = next((arg.split('=', 1)[1] for arg in sys.argv if arg.startswith('--history=')), 'strict')
-
 SAVE_TO_FOLDER  = '_SAVE TO FOLDER SAVE FLAG'
 OIK             = 'Object Index Key'
-HISTORY_KEY     = 'HISTORY_KEY.yaml'
-HISTORY_IGNORE  = [('Schedules',), ('Vars', 'Time')]
+HISTORY_OVERWRITE = ('Vars', 'History Overwrite')
+HISTORY_IGNORE  = [('Schedules',), ('Vars', 'Time'), HISTORY_OVERWRITE]
 
 '''
 Implement Modules By Placing Module Python File In Same Directory
@@ -78,6 +76,11 @@ class DiscordNomicBot():
         self.Data    = dict()                  # databases set
         self.DataNew = dict()
         self.Data_Changes     = []          # queued nested-data changes
+        self.unsaved_commits  = []          # commits not yet written to the history files
+        self._unsaved_base    = None        # state before the first unsaved commit
+        self._history_cache   = None        # (filename, journal, mtime, edited) of the newest history file
+        self._history_mtimes  = None        # history file modification times when last read or written, to spot edits
+        self._history_failed  = None        # modification times of an edit that couldn't be used, so it's reported once
         self.Data_Removes_IDs = []
 
         self.Tasks = list()                 # Tasks to funcation Call
@@ -108,7 +111,10 @@ class DiscordNomicBot():
        
         self.load_dict_from_yaml()
         self.reload_modules()
-        self.check_history()
+        unresolved, report = self.check_history(apply=True)
+        self._history_mtimes = self._history_stat()
+        for line in report: self.log('History check:', line, mode='warn' if unresolved else 'debug')
+        self.history_report = report if unresolved else None
 
         @self.client.event
         async def on_ready(): await self.wrap( self.on_ready )
@@ -201,14 +207,12 @@ class DiscordNomicBot():
                     with open(join(destination, f'{key}.yaml'), 'w', encoding='utf-8') as handle:
                         yaml.safe_dump(value, handle, allow_unicode=True, sort_keys=False)
 
-        self._write_history()
+        if self._pick_up_history_edits(): self._write_history()
         if self.now() - self.last_backup_time > self.day:
             shutil.copytree(folder, join(backup_folder, self.now().strftime("%Y-%m-%d %H:00")), dirs_exist_ok=True)
             self.last_backup_time = self.now()
 
         save_mapping(self.Data, folder)
-        with open(join(folder, HISTORY_KEY), 'w', encoding='utf-8') as handle:
-            yaml.safe_dump(getattr(self, '_last_commit_id', None), handle)
         self.last_save_time = self.now()
 
     def load_dict_from_yaml(self):
@@ -231,8 +235,6 @@ class DiscordNomicBot():
                     result[entry.name] = load_mapping(entry.path)
                     result[entry.name][SAVE_TO_FOLDER] = True
                 elif entry.is_file() and entry.name.endswith('.yaml'):
-                    if entry.name == HISTORY_KEY:
-                        continue
                     key = entry.name.replace('.yaml','')
                     if key in result:
                         raise ValueError(f'A YAML file and folder share the key {key!r} in {source}')
@@ -275,9 +277,6 @@ class DiscordNomicBot():
         if not method.startswith('.') and method not in predefined:
             raise ValueError(f'Unknown staged operation {method!r}; datatype methods must start with "."')
 
-        if not isinstance(self.Data_Changes, list):
-            # Supports bots constructed from an older saved/runtime layout.
-            self.Data_Changes = []
         if 'args' in kwargs: args = list(args) + kwargs.pop('args')
         self.Data_Changes.append({
             'source': self.stage_source,
@@ -336,141 +335,91 @@ class DiscordNomicBot():
         return committed
     
     def rebuild_state(self, *, until=None, errors=None):
-        """Rebuild a logical data state from root and nested histories.
+        """Rebuild the game state from the history files and the unsaved commits.
 
-        Commits are replayed in the order they were written, not by time, since
-        test runs with a different ``startDate`` put earlier times later on.
-        ``until`` accepts a commit id, or a history timestamp, and rebuilds
-        through that commit. If ``errors`` is a list, changes that fail to
-        replay, and journal files that don't start where the previous one
-        ended, are recorded there instead of raising.
-        History is stored exclusively in the external journal, plus commits
-        queued since the last save.
+        Replays from the base of the newest history file (or of the file
+        ``until`` falls in), or from the base of the earliest hand-edited file
+        if that is earlier, since the bases after an edit don't include it.
+        ``until`` is a time: the rebuild stops before the first commit after
+        it. If ``errors`` is a list, changes that fail to replay are recorded
+        there instead of raising.
         """
-        journals = self._journal_files()
-        if getattr(self, '_pending_commits', None):
-            journals.append(('<not yet saved>', {'base': self._journal_value(self._pending_base), 'commits': self._pending_commits}))
-        if not journals:
-            return {}
-        rebuilt = deepcopy(journals[0][1].get('base', {}))
-        ids = {str(commit['id']) for _, journal in journals for commit in journal['commits']}
-
-        for index, (filename, journal) in enumerate(journals):
-            if index and errors is not None:
-                gaps = []
-                self._find_data_differences(tuple(), self._comparable(rebuilt), self._comparable(journal.get('base', {})), gaps)
-                if gaps:
-                    errors.append(f"{basename(filename)} starts from a different state than the journal before it ends with, at {[list(d['path']) for d in gaps[:5]]}")
-            for commit in journal['commits']:
-                if until is not None and str(until) not in ids and str(commit['time']) > str(until):
-                    return rebuilt
-                for change in commit.get('changes', []):
-                    try:
-                        self._apply_data_change(rebuilt, change)
-                    except Exception as e:
-                        if errors is None: raise
-                        errors.append(f"{basename(filename)} commit {commit['id']}: {change.get('operation')} {change.get('path')} failed: {e!r}")
-                if until is not None and str(commit['id']) == str(until):
-                    return rebuilt
-        return rebuilt
-    def compare_rebuild_to_current(self, rebuilt=None, *, base_state=None, until=None):
+        history = self._history_files()
+        return self._replay(history, self._rebuild_start(history, until), until=until, errors=errors)[0]
+    def compare_rebuild_to_current(self, rebuilt=None):
         """Return every path where a rebuilt state differs from current data.
 
         Paths in ``HISTORY_IGNORE`` and structural flags are not compared.
         """
         if rebuilt is None:
-            rebuilt = self.rebuild_state(until=until)
+            rebuilt = self.rebuild_state()
         differences = []
         self._find_data_differences(tuple(), self._comparable(rebuilt), self._comparable(self.Data), differences)
         return differences
 
-    def check_history(self):
-        """Check the saved state against the journal at startup.
+    def check_history(self, apply=False):
+        """Compare the state with a rebuild from the history files.
 
-        ``HISTORY_KEY.yaml`` names the last commit the saved state includes.
-        Commits journaled after it (made after the last save) are applied on
-        top, then the state is compared with a full rebuild. On a difference
-        the bot logs it and exits, unless started with ``--history=ignore``
-        (carry on), ``--history=accept-state`` (journal a correction so the
-        history matches the saved state) or ``--history=accept-history``
-        (replace the state with the rebuild).
+        Returns ``(unresolved, report)``: whether the state and history still
+        disagree, and a report of edited files and differences. With ``apply``
+        (at startup) a mismatch is resolved by the ``HISTORY_OVERWRITE``
+        setting, which is then cleared:
+          'history'  replace the state with the rebuild;
+          'state'    journal a correction commit so the history matches the state.
+        Either way, hand-edited history files are accepted: they and every
+        later file are rewritten with bases from the replay and a new hash.
+        With no setting the bot carries on with the saved state.
         """
-        journals = self._journal_files()
-        commits = [commit for _, journal in journals for commit in journal['commits']]
-        self._last_commit_id = commits[-1]['id'] if commits else None
-        if not commits:
-            self.log('History check: no journal yet, skipped')
-            return
-
-        key = None
-        if exists(join(savepath, HISTORY_KEY)):
-            with open(join(savepath, HISTORY_KEY), 'r', encoding='utf-8') as handle:
-                key = yaml.safe_load(handle)
+        history = self._history_files()
+        if not history and not self.unsaved_commits:
+            return False, ['No history yet.']
+        start = self._rebuild_start(history)
+        replayed_from = basename(history[start][0]) if history else 'the unsaved commits'
         errors = []
-        ids = [str(commit['id']) for commit in commits]
-        pending = []
-        if key is not None and str(key) not in ids:
-            errors.append(f'The saved state is from commit {key}, which is not in the journal')
-        elif key is not None:
-            pending = commits[ids.index(str(key)) + 1:]
-        for commit in pending:
-            for change in commit.get('changes', []):
-                try:
-                    self._apply_data_change(self.Data, change)
-                except Exception as e:
-                    errors.append(f"Commit {commit['id']} (after the last save): {change.get('operation')} {change.get('path')} failed: {e!r}")
-        if pending:
-            self.log(f'History check: applied {len(pending)} commit(s) made after the last save')
-
-        rebuilt = self.rebuild_state(errors=errors)
+        rebuilt, bases = self._replay(history, start, errors=errors)
         differences = self.compare_rebuild_to_current(rebuilt)
-        for line in errors:
-            self.log(f'History check: {line}', mode='warn')
-        if not differences:
-            self.log(f'History check: saved state matches the journal ({len(commits)} commits)')
-            if pending: self.save_dict_to_yaml()
-            return
+        edited = [basename(filename) for filename, _, valid in history if not valid]
 
-        self.log(f'History check: {len(differences)} difference(s) between the saved state and the journal', mode='warn')
-        for d in differences[:50]:
-            self.log(f"  {list(d['path'])}\n      journal: {repr(d['rebuild'])[:300]}\n      saved:   {repr(d['current'])[:300]}", mode='warn')
-        if len(differences) > 50:
-            self.log(f'  ... and {len(differences) - 50} more', mode='warn')
+        report = []
+        if edited: report.append(f'Edited history files (contents no longer match their hash): {", ".join(edited)}')
+        report += errors
+        if differences:
+            report.append(f'{len(differences)} difference(s) between the state and the history, replayed from {replayed_from}:')
+            for d in differences[:50]:
+                report.append(f"  {list(d['path'])}\n      history: {repr(d['rebuild'])[:300]}\n      state:   {repr(d['current'])[:300]}")
+            if len(differences) > 50: report.append(f'  ... and {len(differences) - 50} more')
+        mode = self.get(*HISTORY_OVERWRITE) if self.has(*HISTORY_OVERWRITE) else None
+        if not report:
+            return False, [f'The state matches the history ({len(history)} file(s), replayed from {replayed_from}).']
+        if not apply or mode not in ('history', 'state'):
+            report.append(f'Overwrite setting for the next start: {mode or "none (keep the saved state and report)"}')
+            return True, report
 
-        if history_mode == 'ignore':
-            self.log('History check: continuing anyway (--history=ignore)', mode='warn')
-        elif history_mode == 'accept-state':
+        if mode == 'history':
+            self._replace_state(rebuilt)
+            report.append('Replaced the state with the history.')
+        elif differences:
             changes = []
             for d in differences:
                 path = list(d['path'])
                 if self.has(path): changes.append({'operation': 'set', 'path': path, 'args': [self.get(path)], 'kwargs': {}})
                 else:              changes.append({'operation': 'delete', 'path': path, 'args': [], 'kwargs': {}})
-                changes[-1]['source'] = 'History check (--history=accept-state)'
+                changes[-1]['source'] = 'History check (overwrite: state)'
             commit_time = self._next_history_key()
             self._append_history_commit({
                 'id': commit_time,
                 'time': commit_time,
-                'source': 'History check (--history=accept-state)',
-                'message': 'Correction: accept the saved state',
+                'source': 'History check (overwrite: state)',
+                'message': 'Correction: the history accepts the saved state',
                 'changes': changes,
             }, rebuilt)
-            self.log(f'History check: journaled {len(changes)} correction(s) to match the saved state', mode='warn')
-        elif history_mode == 'accept-history':
-            # The scheduler's own entries aren't journaled, so keep the saved ones.
-            for path in HISTORY_IGNORE:
-                if self.has(path):
-                    self._apply_data_change(rebuilt, {'operation': 'set', 'path': path, 'args': [self.get(path, include_flags=True)]})
-                else:
-                    try: self._apply_data_change(rebuilt, {'operation': 'delete', 'path': path})
-                    except (KeyError, IndexError, TypeError): pass
-            self.Data.clear()
-            self.Data.update(rebuilt)
-            self.log('History check: replaced the saved state with the rebuild (--history=accept-history)', mode='warn')
-        else:
-            self.log('History check: exiting. Fix the journal or Save-State, or restart with '
-                     '--history=ignore, --history=accept-state or --history=accept-history', mode='warn')
-            sys.exit(1)
+            report.append(f'Journaled {len(changes)} correction(s) so the history matches the state.')
+        if edited:
+            self._accept_history_files(history, start, bases)
+            report.append(f'Accepted the edits: rewrote {len(history) - start} history file(s) with new bases and hashes.')
+        del self.Data[HISTORY_OVERWRITE[0]][HISTORY_OVERWRITE[1]]
         self.save_dict_to_yaml()
+        return False, report
 
     def get(self, *nested_key, include_flags=False):
         """Return an isolated copy of a value stored in ``self.Data``.
@@ -609,16 +558,12 @@ class DiscordNomicBot():
 
     @classmethod
     def _apply_data_change(cls, data, change):
-        method = change.get('operation', change.get('method'))
-        if method is None:
-            raise ValueError('A staged change must have an operation')
+        method = change['operation']
         path = tuple(change['path'])
         args = deepcopy(change.get('args', ()))
         kwargs = deepcopy(change.get('kwargs', {}))
 
         if method in {'set', 'replace'}:
-            if not args and 'value' in kwargs:
-                args = (kwargs['value'],)
             if len(args) != 1:
                 raise TypeError(f'{method!r} requires one value argument')
             if not path:
@@ -718,17 +663,140 @@ class DiscordNomicBot():
             return {DiscordNomicBot._journal_value(child) for child in value}
         return deepcopy(value)
 
-    def _journal_files(self):
-        """Return ``(filename, journal)`` for each journal with commits, oldest first."""
-        journals = []
-        if not os.path.isdir(history_folder):
-            return journals
-        for filename in glob.glob(join(history_folder, '*.yaml')):
+    def _pick_up_history_edits(self):
+        """Adopt edits made to the history files while the bot runs; called by each save.
+
+        If any history file changed since the bot last read or wrote them, the
+        state is rebuilt from the files (from the earliest edited one) plus the
+        unsaved commits and replaces the live state, and the files are
+        rewritten with valid hashes. Returns False if the edited files can't be
+        loaded or replayed: the bot keeps its state and unsaved commits, and
+        tries again when the files change.
+        """
+        stat = self._history_stat()
+        if self._history_mtimes is None or stat == self._history_mtimes:
+            self._history_mtimes = stat
+            return True
+        if stat == self._history_failed:
+            return False
+        try:
+            history = self._history_files()
+            if not history:
+                self._history_mtimes = stat
+                return True
+            start = self._rebuild_start(history)
+            errors = []
+            rebuilt, bases = self._replay(history, start, errors=errors)
+            if errors: raise ValueError('; '.join(errors[:5]))
+        except Exception as e:
+            self._history_failed = stat
+            self.log(f"History files were edited, but the edit can't be used yet (the state is unchanged): {e!r}", mode='error')
+            return False
+        differences = self.compare_rebuild_to_current(rebuilt)
+        edited = [basename(filename) for filename, _, valid in history if not valid]
+        if differences or edited:
+            self._replace_state(rebuilt)
+            if self.unsaved_commits: self._unsaved_base = bases[len(history) - start]
+            if edited: self._accept_history_files(history, start, bases)
+            lines = [f'History edit picked up ({", ".join(edited) or "files changed"}): {len(differences)} change(s) to the state.']
+            lines += [f"  {list(d['path'])}: {repr(d['current'])[:200]} -> {repr(d['rebuild'])[:200]}" for d in differences[:30]]
+            if len(differences) > 30: lines.append(f'  ... and {len(differences) - 30} more')
+            for line in lines: self.log(line, mode='warn')
+            self.add_Task(self.Modules['Discord_Module'].send, {'target': 'mod-spam', 'content': '\n'.join(lines)})
+        self._history_mtimes = self._history_stat()
+        self._history_failed = None
+        return True
+
+    def _replace_state(self, rebuilt):
+        """Replace the state with a rebuild, keeping the state-only ``HISTORY_IGNORE`` values."""
+        for path in HISTORY_IGNORE:
+            if self.has(path):
+                self._apply_data_change(rebuilt, {'operation': 'set', 'path': path, 'args': [self.get(path, include_flags=True)]})
+            else:
+                try: self._apply_data_change(rebuilt, {'operation': 'delete', 'path': path})
+                except (KeyError, IndexError, TypeError): pass
+        self.Data.clear()
+        self.Data.update(rebuilt)
+
+    def _accept_history_files(self, history, start, bases):
+        """Accept edits: rewrite ``history[start:]`` with bases from the replay and valid hashes."""
+        for offset, (filename, journal, _) in enumerate(history[start:]):
+            self._write_history_file({'base': self._journal_value(bases[offset]), 'commits': journal.get('commits', [])}, filename)
+        self._history_cache = None
+
+    @staticmethod
+    def _history_stat():
+        """Modification time of each history file."""
+        return {filename: os.stat(filename).st_mtime_ns for filename in glob.glob(join(history_folder, '*.yaml'))}
+
+    @staticmethod
+    def _history_text(journal):
+        """A history file's base and commits as YAML; its SHA-256 is the file's hash.
+
+        Hashing the re-serialized contents means reformatting or comments
+        aren't counted as edits; changed values are.
+        """
+        return yaml.dump({'base': journal.get('base', {}), 'commits': journal.get('commits', [])},
+                         Dumper=getattr(yaml, 'CSafeDumper', yaml.SafeDumper), allow_unicode=True, sort_keys=False)
+
+    def _history_files(self):
+        """Return ``[filename, journal, valid]`` for each history file, oldest first by file name.
+
+        ``valid`` is False when the contents no longer match the stored hash.
+        A copy left by an interrupted rename (same first commit, fewer commits) is skipped.
+        """
+        history = []
+        for filename in sorted(glob.glob(join(history_folder, '*.yaml'))):
             with open(filename, 'r', encoding='utf-8') as handle:
                 journal = yaml.load(handle, Loader=getattr(yaml, 'CSafeLoader', yaml.SafeLoader)) or {}
-            if journal.get('commits'):
-                journals.append((filename, journal))
-        return sorted(journals, key=lambda item: item[1]['commits'][0]['time'])
+            valid = journal.get('hash') == hashlib.sha256(self._history_text(journal).encode('utf-8')).hexdigest()
+            history.append([filename, journal, valid])
+        longest = {}
+        for filename, journal, _ in history:
+            first = self._first_commit_id(journal)
+            if first is not None and len(journal['commits']) >= len(longest.get(first, {}).get('commits', [])):
+                longest[first] = journal
+        return [entry for entry in history if longest.get(self._first_commit_id(entry[1]), entry[1]) is entry[1]]
+
+    @staticmethod
+    def _first_commit_id(journal):
+        commits = journal.get('commits') if isinstance(journal, dict) else None
+        return str(commits[0].get('id')) if commits else None
+
+    @staticmethod
+    def _rebuild_start(history, until=None):
+        """Index of the history file to replay from: the newest, or the one ``until`` falls in,
+        or the earliest edited file if that is earlier."""
+        start = max(len(history) - 1, 0)
+        if until is not None:
+            start = max([i for i, (_, journal, _) in enumerate(history)
+                         if journal.get('commits') and journal['commits'][0]['time'] <= until] or [0])
+        return min([start] + [i for i, (_, _, valid) in enumerate(history) if not valid])
+
+    def _replay(self, history, start, until=None, errors=None):
+        """Replay from the base of ``history[start]`` through the later files and the unsaved commits.
+
+        Returns the state and the state at the start of each replayed file.
+        """
+        files = [journal for _, journal, _ in history[start:]]
+        if self.unsaved_commits:
+            files.append({'base': self._journal_value(self._unsaved_base), 'commits': self.unsaved_commits})
+        if not files:
+            return {}, []
+        rebuilt = deepcopy(files[0].get('base', {}))
+        bases = []
+        for journal in files:
+            bases.append(deepcopy(rebuilt))
+            for commit in journal.get('commits', []):
+                if until is not None and commit['time'] > until:
+                    return rebuilt, bases
+                for change in commit.get('changes', []):
+                    try:
+                        self._apply_data_change(rebuilt, change)
+                    except Exception as e:
+                        if errors is None: raise
+                        errors.append(f"Commit {commit['id']}: {change.get('operation')} {change.get('path')} failed to replay: {e!r}")
+        return rebuilt, bases
 
     @classmethod
     def _comparable(cls, data):
@@ -743,53 +811,79 @@ class DiscordNomicBot():
         return data
 
     def _append_history_commit(self, commit, base_state):
-        """Queue a commit for the journal; save_dict_to_yaml writes queued commits along with the state."""
-        if not getattr(self, '_pending_commits', None):
-            self._pending_commits = []
-            self._pending_base = base_state
-        self._pending_commits.append(self._journal_value(commit))
+        """Cache a commit in ``unsaved_commits``; save_dict_to_yaml writes it to the history files."""
+        if not self.unsaved_commits:
+            self._unsaved_base = base_state
+        self.unsaved_commits.append(self._journal_value(commit))
 
     def _write_history(self):
-        """Write queued commits to the journal. If the write fails they stay queued for the next save."""
-        pending = getattr(self, '_pending_commits', None)
-        if not pending:
+        """Write the unsaved commits to the newest history file (by name), or start a new one.
+
+        A new file is started when the newest is full (500 commits over a day,
+        or 30 days). Edits made while the bot runs are picked up first (see
+        ``_pick_up_history_edits``); a file edited while it was stopped and
+        not yet resolved is written to but stays marked as edited. If the
+        write fails, the commits stay unsaved.
+        """
+        if not self.unsaved_commits:
             return
         os.makedirs(history_folder, exist_ok=True)
-        filename, journal = getattr(self, '_history_cache', None) or (None, None)
-        self._history_cache = None
-        if filename is None or not exists(filename):
-            filename, journal = None, None
-            journals = self._journal_files()
-            if journals:
-                filename, journal = journals[-1]
-        if not journal:
-            journal = {'schema': 1, 'base': self._journal_value(self._pending_base), 'commits': []}
-
-        commits = journal.setdefault('commits', [])
+        filename, journal, mtime, edited = self._history_cache or (None, None, None, False)
+        if filename is not None and (not exists(filename) or os.stat(filename).st_mtime_ns != mtime):
+            filename = None     # changed on disk: reload it below and use what's there
+        if filename is None:
+            history = self._history_files()
+            if history: filename, journal, edited = history[-1][0], history[-1][1], not history[-1][2]
+        commits = journal.get('commits', []) if journal else []
         if commits:
-            first_time = commits[0]['time']
-            span = pending[0]['time'] - first_time
+            span = self.unsaved_commits[0]['time'] - commits[0]['time']
             if (len(commits) >= 500 and span >= self.day) or span >= datetime.timedelta(days=30):
-                journal = {'schema': 1, 'base': self._journal_value(self._pending_base), 'commits': []}
-                filename = None
-        journal['commits'].extend(pending)
-        start = journal['commits'][0]['time']
-        end = journal['commits'][-1]['time']
-        new_filename = join(history_folder, f'{start:%Y%b%d}_to_{end:%Y%b%d}.yaml')
-        temporary = new_filename + '.tmp'
+                commits = []
+        if not commits:
+            filename, journal, edited = None, {'base': self._journal_value(self._unsaved_base)}, False
+        journal = {'base': journal['base'], 'commits': commits + self.unsaved_commits}
+        try:
+            new_filename = self._write_history_file(journal, filename, edited)
+        except Exception as e:
+            self.log(f'Error writing history: {e!r} ({len(self.unsaved_commits)} commit(s) kept for the next save)', mode='error')
+            self._history_cache = None
+            return
+        self._history_cache = (new_filename, journal, os.stat(new_filename).st_mtime_ns, edited)
+        self._history_mtimes = self._history_stat()
+        self.unsaved_commits = []
+
+    def _write_history_file(self, journal, old_filename=None, edited=False):
+        """Write a history file with its hash, named by its date span. Returns the file name.
+
+        An ``edited`` file gets the hash ``edited`` instead, so it stays
+        reported until check_history resolves it. Removes the previous copy
+        when the span (and so the name) changes. Never writes over or removes
+        a file that holds different history.
+        """
+        def first_commit_of(filename):
+            with open(filename, 'r', encoding='utf-8') as handle:
+                return self._first_commit_id(yaml.load(handle, Loader=getattr(yaml, 'CSafeLoader', yaml.SafeLoader)) or {})
+
+        start, end = journal['commits'][0]['time'], journal['commits'][-1]['time']
+        filename = join(history_folder, f'{start:%Y-%m-%d}_to_{end:%Y-%m-%d}.yaml')
+        first = self._first_commit_id(journal)
+        if exists(filename) and first_commit_of(filename) != first:
+            raise FileExistsError(f'{basename(filename)} already holds different history (did the clock go backwards?)')
+        text = self._history_text(journal)
+        temporary = filename + '.tmp'
         try:
             with open(temporary, 'w', encoding='utf-8') as handle:
-                yaml.dump(journal, handle, Dumper=getattr(yaml, 'CSafeDumper', yaml.SafeDumper), allow_unicode=True, sort_keys=False)
-        except Exception as e:
-            self.log(f'Error writing journal to {temporary}: {e!r} ({len(pending)} commit(s) kept)', mode='error')
+                handle.write(f"hash: {'edited' if edited else hashlib.sha256(text.encode('utf-8')).hexdigest()}\n" + text)
+        except Exception:
             if exists(temporary): os.remove(temporary)
-            return
-        os.replace(temporary, new_filename)
-        self._history_cache = (new_filename, journal)
-        self._pending_commits = []
-        self._last_commit_id = pending[-1]['id']
-        if filename and os.path.abspath(filename) != os.path.abspath(new_filename) and exists(filename):
-            os.remove(filename)
+            raise
+        os.replace(temporary, filename)
+        stale = [other for other in glob.glob(join(history_folder, basename(filename).split('_to_')[0] + '_to_*.yaml'))
+                 if os.path.abspath(other) != os.path.abspath(filename) and first_commit_of(other) == first]
+        if old_filename and os.path.abspath(old_filename) != os.path.abspath(filename): stale.append(old_filename)
+        for other in stale:
+            if exists(other): os.remove(other)
+        return filename
 
     @classmethod
     def _find_data_differences(cls, path, rebuilt, current, differences):
@@ -1049,6 +1143,13 @@ class DiscordNomicBot():
         self.add_Task(function = UPDATE, kwargs={'bot':self})
         self.add_Task(function = UPDATE_DISPLAY, kwargs={'bot':self})
         await self._runTasks(commit_msg=f"Startup Update - {self.now()}")
+
+        if self.history_report:
+            self.add_Task(self.Modules['Discord_Module'].send, {'target': 'mod-spam', 'content': '\n'.join(
+                ['History check at startup: the state and history disagree; running on the saved state.'] + self.history_report +
+                ['Use !history-check to re-check, !history-overwrite history|state to pick which side wins, then !exit to restart.'])})
+            await self._runTasks(commit_msg=f"Startup History Report - {self.now()}")
+            self.history_report = None
 
 
         self.log(' Mainloop Start!')
