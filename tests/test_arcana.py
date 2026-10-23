@@ -281,7 +281,7 @@ class ArcanaTests(unittest.IsolatedAsyncioTestCase):
                 ('The Sun', 1, 'Play Area')]]
         await Arcana.showHand(self.bot, self.payload())
         self.bot.Modules['Discord_Module'].send.assert_awaited_once_with(
-            self.bot, 1, 'Your hand:\nThe Fool\nThe Star')
+            self.bot, 1, 'Your hand:\nThe Fool\nThe Star\nThe Sun')
         self.bot.Modules['Discord_Module'].return_resp.assert_not_awaited()
         await Arcana.showHand(self.bot, self.payload(pid=3))
         self.assertEqual(self.bot.Modules['Discord_Module'].send.call_args.args[2], 'Your hand:\n(empty)')

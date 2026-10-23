@@ -51,6 +51,7 @@ def players(bot, active=False):
 
 
 def canDraw(bot, pid):
+    if 'CardGame' in bot.Modules and bot.has('Card Game') and not bot.Modules['CardGame'].canDraw(bot, pid): return False
     if isinstance(pid, (list, tuple)):
         return bot.has(*pid) and bot.get(*pid).get('Can Draw Cards', True)
     return bot.get('Players', pid).get('Can Draw Cards', True)
@@ -63,7 +64,7 @@ def members(bot, owner):
 
 
 def visible(bot, card, pid):
-    return card['Zone'] != 'Private Hand' or pid in members(bot, card['Owner'])
+    return card['Zone'] not in ['Private Hand', 'Personal Deck'] or pid in members(bot, card['Owner'])
 
 
 def crystals(bot, pid):
@@ -82,6 +83,7 @@ def effectApplies(cards, name):
 def weight(cards, name, turn=False):
     definition = cards['Definitions'][name]
     count = sum(card['Name'] == name for card in cards['Outside'])
+    count += sum(card['Name'] == name for card in cards.get('Destroyed', []))
     count += cards['Turn Card'] == name
     if definition['Count'] is not None and count >= definition['Count']: return 0
     if turn:
@@ -117,6 +119,7 @@ async def draw(bot, cards, pid, name=None, card=None):
     # Turn Card selection never calls this hook.
     for module in bot.Modules.values():
         if hasattr(module, 'on_card_draw'): await module.on_card_draw(bot, pid, dict(card))
+        if hasattr(module, 'on_card_received'): await module.on_card_received(bot, pid, card, cards)
     return name
 
 
@@ -153,6 +156,7 @@ async def onTurnEnd(bot):
     cards['Turn Card'] = None
     cards['Turn Card Details'] = None
     for field in ['Turn Card', 'Turn Card Details', 'Previous Turn Cards', 'Outside']: bot.set(('Cards', field), cards[field])
+    if 'CardGame' in bot.Modules: bot.add_Task(bot.Modules['CardGame'].onTurnEnd)
 
 
 def wordChanges(old, new):
@@ -220,7 +224,7 @@ async def showHand(bot, payload, *args):
     owner = ['Teams', words[1].strip()] if len(words) > 1 else pid
     if pid not in members(bot, owner):
         return await bot.Modules['Discord_Module'].send(bot, pid, 'You are not a member of that entity.')
-    hand = [c['Name'] for c in bot.get('Cards', 'Outside') if c['Owner'] == owner and c['Zone'].endswith('Hand') and visible(bot, c, pid)]
+    hand = [c['Name'] for c in bot.get('Cards', 'Outside') if c['Owner'] == owner and c['Zone'] in ['Private Hand', 'Public Hand', 'Personal Deck', 'Play Area'] and visible(bot, c, pid)]
     await bot.Modules['Discord_Module'].send(bot, pid, 'Your hand:\n' + ('\n'.join(hand) or '(empty)'))
 
 

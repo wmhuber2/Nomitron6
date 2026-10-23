@@ -119,6 +119,8 @@ async def TallyVotes(bot):
     arcana = bot.Modules['Arcana']
     rewards = {}
     currentCards = bot.get('Cards')
+    history = bot.get('Card Game', 'History') if bot.has('Card Game') else None
+    instantEffects = bot.get('Card Game', 'Instant Effects') if bot.has('Card Game') else None
     # Tally Main Voting Queue
     propIDs = where(bot, 'Queue-Proposals', lambda df: df['State'] == 'Voting')
     propKeys= [bot.get('Queue-Proposals',propID, 'Proposal#') for propID in propIDs]
@@ -161,6 +163,14 @@ async def TallyVotes(bot):
                     if bot.Modules['Discord_Module'].isPlayer(bot, pid): rewards[pid] = rewards.get(pid, 0) + 1
             await bot.Modules['Discord_Module'].send(bot, chan, f"- **Vote Status:**  {propOwnerName}'s Proposal Passes\n" \
                 f"  Tally: {len(yay_votes)} For, {len(nay_votes)} Against.")
+            if instantEffects is not None:
+                ruleText, instant = bot.Modules['CardGame'].instantParts(bot.get('Queue-Proposals', propID, 'Body'))
+                if propNum == 309:
+                    bot.add_Task(bot.Modules['CardGame'].start309, {'author': propOwnerPid})
+                if instant:
+                    instantEffects[propNum] = {'Text': instant, 'Rule Text': ruleText, 'Status': 'Scheduled' if propNum == 309 else 'Pending adjudication'}
+                    if propNum != 309:
+                        await bot.Modules['Discord_Module'].send(bot, chan, f'Instant effect from #{propNum} requires immediate moderator adjudication:\n{instant}')
         else:
             await bot.Modules['Discord_Module'].send(bot, chan, f"- **Vote Status:**  {propOwnerName}'s Proposal Failed \n" \
                 f"  Tally: {len(yay_votes)} For, {len(nay_votes)} Against.")
@@ -173,11 +183,15 @@ async def TallyVotes(bot):
                 await bot.Modules['Discord_Module'].create_category(bot, propVoteArchiveCat(propNum))
                 bot.add_Task(bot.Modules['Discord_Module'].move_channel_catagory, {'text_channel_name':propChannel, 'catagory_name':propVoteArchiveCat(propNum)})
                 bot.add_Task(bot.Modules['Discord_Module'].set_channel_perms, {'text_channel_name':propChannel, 'permSetName':'Locked'} )
+        if history is not None: bot.Modules['CardGame'].recordVote(bot, history, propNum, votingPlayersPIDs)
         bot.remove('Queue-Proposals',propID)
         for vote in all_votes: bot.remove('User-Proposal-Votes',vote)
 
     for pid, amount in rewards.items():
         bot.set(('Players', pid, 'Intrinsic', 'Crystals'), arcana.crystals(bot, pid) + amount)
+    if history is not None:
+        bot.set(('Card Game', 'History'), history)
+        bot.set(('Card Game', 'Instant Effects'), instantEffects)
 
 async def PutToVote(bot):
     bot.log('Vote Call')
@@ -295,6 +309,8 @@ async def on_reaction(bot, reaction):
     chan = reaction['MSG']['Channel']
     mid = reaction['MSG']['MID']
     pid = reaction['Reactor PID']
+    if 'CardGame' in bot.Modules and bot.Modules['CardGame'].blockedAction(bot, pid):
+        return await bot.Modules['Discord_Module'].return_resp(bot, pid, 'Roll for the Random spell with !card-random before any other action, including voting.')
 
     # if Vote endorsing
     propID = where(bot, 'Queue-Proposals', lambda df: df['Channel'] == chan)
@@ -344,6 +360,7 @@ async def on_message(bot, message):
     chan = message['Channel']
     mid  = message['MID']
     pid  = message['Author PID']
+    if 'CardGame' in bot.Modules and bot.Modules['CardGame'].blockedAction(bot, pid): return
 
     propID = where(bot, 'Queue-Proposals', lambda df: df['Channel'] == chan)
     if len(propID) == 1 and message['Category'] == 'ACTIVE-VOTES': # Fixed        
