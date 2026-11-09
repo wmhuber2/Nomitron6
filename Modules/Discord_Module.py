@@ -436,7 +436,8 @@ async def on_message_event(bot: Bot, payload: Union[Payload, discord.Message]) -
         
     if payload['Author PID'] == bot.client.user.id: return
 
-    await send(bot, logChan, f"Player {payload['Author']} MSG in {payload['Channel']} {payload['Content']}",silent=True)
+    if payload['Category'].upper() not in ['TEA TEAMS',]:
+        await send(bot, logChan, f"Player {payload['Author']} MSG in {payload['Channel']} {payload['Content']}",silent=True)
     bot.schedule( 
         method_name = 'passToModule',
         module_name = 'Nomitron',
