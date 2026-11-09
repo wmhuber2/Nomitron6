@@ -76,6 +76,7 @@ async def setup(bot):
      
     bot.update_nested_dict(('Queue-Proposals',), structure = {})
     bot.update_nested_dict(('User-Proposal-Votes',), structure = {})
+    bot.update_nested_dict(('Vote-History',), structure = {})
     bot.update_nested_dict(('User-Proposal-Endorsement',), structure = {})
     if not bot.has('Vars', 'Next Proposal Number'): bot.set(('Vars', 'Next Proposal Number'), kwargs=301)
     if not bot.has('Vars', 'Next Proposal Number'): bot.set(('Vars', 'Next Proposal Number'), kwargs=301)
@@ -153,6 +154,11 @@ async def TallyVotes(bot):
                 await bot.Modules['Discord_Module'].create_category(bot, propVoteArchiveCat(propNum))
                 bot.add_Task(bot.Modules['Discord_Module'].move_channel_catagory, {'text_channel_name':propChannel, 'catagory_name':propVoteArchiveCat(propNum)})
                 bot.add_Task(bot.Modules['Discord_Module'].set_channel_perms, {'text_channel_name':propChannel, 'permSetName':'Locked'} )
+        # Keep everyone who cast a yes or no, even if they withdrew it after (rule 309)
+        bot.set(('Vote-History', propNum), {
+            'DOB': bot.get('Queue-Proposals', propID, 'DOB'),
+            'Voted On': [bot.get('User-Proposal-Votes', vid, 'PID-Voter') for vid in all_votes if bot.get('User-Proposal-Votes', vid).get('Voted', False)],
+        })
         bot.remove('Queue-Proposals',propID)
         for vote in all_votes: bot.remove('User-Proposal-Votes',vote)
 
@@ -233,16 +239,18 @@ async def popProposalJudge(bot):
 
 
 async def yay(bot, PID, propID):
-    bot.set(('User-Proposal-Votes', f"{PID}-{propID}"), kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Yay'})
-    bot.set(('User-Proposal-Votes', f"{PID}-{propID}"), kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Yay'})
+    bot.set(('User-Proposal-Votes', f"{PID}-{propID}"), kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Yay','Voted':True})
+    bot.set(('User-Proposal-Votes', f"{PID}-{propID}"), kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Yay','Voted':True})
 
 async def nay(bot, PID, propID):
-    bot.set(('User-Proposal-Votes', f"{PID}-{propID}"), kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Nay'})
-    bot.set(('User-Proposal-Votes', f"{PID}-{propID}"), kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Nay'})
+    bot.set(('User-Proposal-Votes', f"{PID}-{propID}"), kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Nay','Voted':True})
+    bot.set(('User-Proposal-Votes', f"{PID}-{propID}"), kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Nay','Voted':True})
 
 async def abstain(bot, PID, propID):
-    bot.set(('User-Proposal-Votes', f"{PID}-{propID}"), kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Abstain'})
-    bot.set(('User-Proposal-Votes', f"{PID}-{propID}"), kwargs={'PID-Voter':PID,'Proposal-ID':propID,'Vote':'Abstain'})
+    # Field by field, so a yes or no cast before stays on record: rule 309 counts it as having voted
+    bot.set(('User-Proposal-Votes', f"{PID}-{propID}", 'PID-Voter'), PID)
+    bot.set(('User-Proposal-Votes', f"{PID}-{propID}", 'Proposal-ID'), propID)
+    bot.set(('User-Proposal-Votes', f"{PID}-{propID}", 'Vote'), 'Abstain')
 
 
 

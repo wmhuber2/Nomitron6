@@ -51,9 +51,18 @@ async def setup(bot):
         callback = setCount,
         checks = ['isMod'])
 
-    bot.update_nested_dict(('Cards',), structure = {})
     bot.update_nested_dict(('Card-Counts',), structure = {name: 0 for name in cardDefs})
     if not bot.has('Vars', 'Next Card ID'): bot.set(('Vars', 'Next Card ID'), 1)
+
+    bot.add_Task(moveCards)     # ONE-OFF: delete this line and moveCards once it has run on the live bot
+
+# ONE-OFF: cards used to be kept in a Cards table. Queued from setup so it runs once Discord_Module's reload of the
+# players is committed, which would otherwise overwrite the moved cards
+async def moveCards(bot):
+    if not bot.has('Cards'): return
+    for cid, card in bot.get('Cards').items():
+        bot.set(('Players', card.pop('Owner'), 'Cards', cid), card)
+    bot.remove('Cards')
 
 def canDraw(bot, pid, mode):
     """Whether a player can draw with a mode now, and why not."""
@@ -79,8 +88,8 @@ def drawCard(bot, pid, mode):
         elif card['Count'] == math.inf:   weights.append(card['Weight'] * 2 ** -counts[name])
         else:                             weights.append(card['Weight'])
     name = random.choices(list(cardDefs), weights=weights)[0]
-    bot.set(('Cards', cid), {
-        'Name': name, 'Owner': pid, 'Zone': 'Private', 'Edition': None, 'Stickers': [],
+    bot.set(('Players', pid, 'Cards', cid), {
+        'Name': name, 'Zone': 'Private', 'Edition': None, 'Stickers': [],
         'Drawn Turn': bot.get('Vars', 'Turn'), 'Drawn Mode': mode,
     })
     bot.stage(('Card-Counts', name), 'increment', 1)
@@ -121,9 +130,8 @@ async def hand(bot, payload, *args):
         pid = bot.Modules['ItemsAndTeams'].pidFrom(bot, words[1])
         if pid is None: return await bot.Modules['Discord_Module'].return_resp(bot, payload, "Use !hand, or !hand <@player> as a mod.")
 
-    held = {cid: card for cid, card in bot.get('Cards').items() if card['Owner'] == pid}
     text = f"{bot.get('Players', pid, 'Name')}'s hand:\n"
-    text += '\n'.join(f"- #{cid}: {card['Name']} ({card['Zone'].lower()})" for cid, card in held.items()) or 'No cards.'
+    text += '\n'.join(f"- #{cid}: {card['Name']} ({card['Zone'].lower()})" for cid, card in bot.get('Players', pid).get('Cards', {}).items()) or 'No cards.'
     await bot.Modules['Discord_Module'].send(bot, author, text)
 
 

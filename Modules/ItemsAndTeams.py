@@ -16,7 +16,8 @@ spiceSeed = {
 }
 
 pocketsStat    = 'Pockets'
-intrinsicStart = {'Luck': 1, pocketsStat: 2}    # what a player starts with; anything else starts at 0
+intrinsicStart = {'Luck': 1, pocketsStat: 2, 'HP': 100, 'Crystals': 0, 'Deck-Capacity': 3}    # what a player starts with; anything else starts at 0. HP, Crystals, Deck-Capacity: rules 302, 309
+intrinsicMin   = {'HP': 1, 'Crystals': 0, 'Deck-Capacity': 0}    # the lowest each can go; the others have no floor
 teamSize       = 3
 orderChan      = 'sauce-orders'
 maxOrderLen    = 1500                           # keeps an order post to a single message
@@ -402,6 +403,8 @@ async def setAmount(bot, payload, *args, add = False):
         if type(amount) is not int:
             return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{name} is intrinsic, so the amount must be a whole number.")
         if add: amount += bot.get('Players', key).get('Intrinsic', {}).get(name, 0)
+        if name in intrinsicMin and amount < intrinsicMin[name]:
+            return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{name} can't go below {intrinsicMin[name]}.")
         bot.set(('Players', key, 'Intrinsic', name), amount)
         return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{who} now has {amount} {name}.")
 
