@@ -1,7 +1,7 @@
 #
 # Cards Module For Discord Bot (Rules 302 and 309)
 ################################
-import random
+import random, math
 
 ranks  = ['Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Page', 'Knight', 'Queen', 'King', 'Ace']
 suits  = ['Swords', 'Wands', 'Coins', 'Cups']
@@ -9,8 +9,9 @@ majors = ['The Fool', 'The Magician', 'The High Priestess', 'The Empress', 'The 
           'The Chariot', 'Strength', 'The Hermit', 'Wheel of Fortune', 'Justice', 'The Hanged Man', 'Death', 'Temperance',
           'The Devil', 'The Tower', 'The Star', 'The Moon', 'The Sun', 'Judgement', 'The World']
 
-# Count is how many can be out of the MDoMA (None if Infinite); Weight replaces the default weight while copies are left
-cardDefs = {f'{rank} of {suit}': {'Count': None} for suit in suits for rank in ranks} \
+# Count is how many can be out of the MDoMA. Weight is a finite card's weight while copies are left, and an infinite
+# card's with none out; it halves with each copy out (rule 302)
+cardDefs = {f'{rank} of {suit}': {'Count': math.inf, 'Weight': 1} for suit in suits for rank in ranks} \
          | {name: {'Count': 1, 'Weight': 0} for name in majors}
 
 crystalCost = 2
@@ -18,8 +19,6 @@ drawModes   = {
     'crystals': f'once per turn, for {crystalCost} Crystals (rule 302)',
     'spread':   'once, in the turn a mod grants it (rule 302, Opening Spread)',
 }
-
-uncommitted = {}    # staged draws, so draws in one task batch don't share an ID or a limit. card ID: {'Name', 'Owner', 'Mode'}
 
 
 async def setup(bot):
@@ -56,55 +55,36 @@ async def setup(bot):
     bot.update_nested_dict(('Card-Counts',), structure = {name: 0 for name in cardDefs})
     if not bot.has('Vars', 'Next Card ID'): bot.set(('Vars', 'Next Card ID'), 1)
 
-def settle(bot):
-    """Forget uncommitted draws once they're committed."""
-    for cid in [cid for cid in uncommitted if bot.has('Cards', cid)]: del uncommitted[cid]
-
-def outCount(bot, name):
-    """How many of a card are out of the MDoMA."""
-    settle(bot)
-    return bot.get('Card-Counts', name) + sum(1 for d in uncommitted.values() if d['Name'] == name)
-
-def weight(bot, name):
-    """A card's weight in a draw (rule 302): finite cards 1 while copies are left and 0 after, infinite cards 2^-c."""
-    card, out = cardDefs[name], outCount(bot, name)
-    if card['Count'] is not None and out >= card['Count']: return 0
-    if 'Weight' in card: return card['Weight']
-    return 1 if card['Count'] is not None else 2 ** -out
-
-def cardFrom(text):
-    """The card a name means, ignoring case, or None."""
-    return {name.lower(): name for name in cardDefs}.get(text.strip().lower())
-
 def canDraw(bot, pid, mode):
     """Whether a player can draw with a mode now, and why not."""
-    settle(bot)
     turn = bot.get('Vars', 'Turn')
     player = bot.get('Players', pid)
     draws = player.get('Draws', {})
-    pending = any(d['Owner'] == pid and d['Mode'] == mode for d in uncommitted.values())
     if mode == 'crystals':
         crystals = player.get('Intrinsic', {}).get('Crystals', 0)
-        if draws.get('Crystals Used Turn') == turn or pending: return False, "You've already drawn with Crystals this turn."
-        if crystals < crystalCost:                             return False, f"That costs {crystalCost} Crystals, and you have {crystals}."
+        if draws.get('Crystals Used Turn') == turn: return False, "You've already drawn with Crystals this turn."
+        if crystals < crystalCost:                  return False, f"That costs {crystalCost} Crystals, and you have {crystals}."
         return True, None
     if mode == 'spread':
-        if draws.get('Spread Granted Turn') != turn or pending: return False, "You haven't been granted an Opening Spread draw this turn."
+        if draws.get('Spread Granted Turn') != turn: return False, "You haven't been granted an Opening Spread draw this turn."
         return True, None
     return False, f"There is no {mode} draw."
 
 def drawCard(bot, pid, mode):
     """Draw one card from the MDoMA into a player's private hand. Returns its ID and name."""
-    names = [name for name in cardDefs if weight(bot, name) > 0]
-    name = random.choices(names, weights=[weight(bot, n) for n in names])[0]
-    cid = max([bot.get('Vars', 'Next Card ID')] + [k + 1 for k in uncommitted])
+    counts, cid = bot.get('Card-Counts'), bot.get('Vars', 'Next Card ID')
+    weights = []
+    for name, card in cardDefs.items():
+        if counts[name] >= card['Count']: weights.append(0)
+        elif card['Count'] == math.inf:   weights.append(card['Weight'] * 2 ** -counts[name])
+        else:                             weights.append(card['Weight'])
+    name = random.choices(list(cardDefs), weights=weights)[0]
     bot.set(('Cards', cid), {
         'Name': name, 'Owner': pid, 'Zone': 'Private', 'Edition': None, 'Stickers': [],
         'Drawn Turn': bot.get('Vars', 'Turn'), 'Drawn Mode': mode,
     })
     bot.stage(('Card-Counts', name), 'increment', 1)
     bot.stage(('Vars', 'Next Card ID'), 'increment', 1)
-    uncommitted[cid] = {'Name': name, 'Owner': pid, 'Mode': mode}
     return cid, name
 
 
@@ -179,13 +159,13 @@ async def setEligibility(bot, payload, *args):
 
 async def setCount(bot, payload, *args):
     words = payload['Content'].split(' ', 2)
-    name = cardFrom(words[2]) if len(words) > 2 else None
+    name = {name.lower(): name for name in cardDefs}.get(words[2].strip().lower()) if len(words) > 2 else None
     if name is None or not words[1].isdigit():
         return await bot.Modules['Discord_Module'].return_resp(bot, payload, "Use !set-count <amount> <card>, with a whole number of at least 0 and the card's full name, e.g. !set-count 2 Three of Cups.")
     amount, limit = int(words[1]), cardDefs[name]['Count']
-    if limit is not None and amount > limit:
+    if amount > limit:
         return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{name} is finite: at most {limit} can be out of the MDoMA.")
 
-    old = outCount(bot, name)
+    old = bot.get('Card-Counts', name)
     bot.set(('Card-Counts', name), amount)
     await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{name}: {amount} out of the MDoMA (was {old}).")
