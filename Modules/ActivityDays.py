@@ -4,7 +4,7 @@
 import random
 
 activityChan   = 'actions'
-activityChance = 1/8                # each day except Monday
+activityChance = 0.25 # each day except Monday
 activityDays   = ['Rain Day', 'Circus Day', 'Snow Day', 'Leg Day', 'Arms Day', 'Fun Day', 'Spaghetti Night', 'Judgement Day']   # all equally likely
 
 
