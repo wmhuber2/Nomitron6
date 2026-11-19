@@ -25,7 +25,7 @@ async def onWeekStart(bot):
     for pid in bot.get_Ref('Players'):
         player = bot.get('Players', pid)
         if player.get('Guild Week') != week - 1 or not bot.Modules['Discord_Module'].isPlayer(bot, pid): continue
-        bot.stage(('Players', pid, 'Currency', guildCoin), 'increment', disbursement)
+        bot.stage(('Players', pid, 'Resources', guildCoin), 'increment', disbursement)
         paid.append(player['Name'])
     if len(paid) > 0:
         await bot.Modules['Discord_Module'].send(bot, guildChan, f"The guild paid {disbursement} {guildCoin} to: {', '.join(paid)}")

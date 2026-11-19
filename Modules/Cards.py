@@ -17,7 +17,6 @@ cardDefs = {f'{rank} of {suit}': {'Count': math.inf, 'Weight': 1} for suit in su
 crystalCost = 2
 drawModes   = {
     'crystals': f'once per turn, for {crystalCost} Crystals (rule 302)',
-    'spread':   'once, in the turn a mod grants it (rule 302, Opening Spread)',
 }
 
 
@@ -74,9 +73,6 @@ def canDraw(bot, pid, mode):
         if draws.get('Crystals Used Turn') == turn: return False, "You've already drawn with Crystals this turn."
         if crystals < crystalCost:                  return False, f"That costs {crystalCost} Crystals, and you have {crystals}."
         return True, None
-    if mode == 'spread':
-        if draws.get('Spread Granted Turn') != turn: return False, "You haven't been granted an Opening Spread draw this turn."
-        return True, None
     return False, f"There is no {mode} draw."
 
 def drawCard(bot, pid, mode):
@@ -115,7 +111,6 @@ async def draw(bot, payload, *args):
     if mode == 'crystals':
         bot.stage(('Players', pid, 'Intrinsic', 'Crystals'), 'decrement', crystalCost)
         bot.set(('Players', pid, 'Draws', 'Crystals Used Turn'), bot.get('Vars', 'Turn'))
-    if mode == 'spread': bot.set(('Players', pid, 'Draws', 'Spread Granted Turn'), None)
     cid, name = drawCard(bot, pid, mode)
     await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{bot.get('Players', pid, 'Name')} drew a card ({mode}).")
     await bot.Modules['Discord_Module'].send(bot, pid, f"You drew #{cid}: {name}.")
@@ -162,7 +157,6 @@ async def setEligibility(bot, payload, *args):
 
     turn = bot.get('Vars', 'Turn')
     if mode == 'crystals': bot.set(('Players', pid, 'Draws', 'Crystals Used Turn'), None if state == 'true' else turn)
-    if mode == 'spread':   bot.set(('Players', pid, 'Draws', 'Spread Granted Turn'), turn if state == 'true' else None)
     await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{who} {'can' if state == 'true' else 'can no longer'} draw with {mode} this turn.")
 
 async def setCount(bot, payload, *args):

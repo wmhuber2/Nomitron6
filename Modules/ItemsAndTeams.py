@@ -172,6 +172,12 @@ def splitAmount(bot, words):
     if roleName is not None and roleName in bot.get('Teams'): return ('Teams', roleName), amount, name
     return None, None, None
 
+def otherResources(bot):
+    """Listed resources with no storage of their own (not Intrinsic, Items or Fluids). Players hold these under Resources."""
+    resources = bot.get('Resources')
+    stored = resources['Intrinsic'] + resources['Items'] + resources['Fluids']
+    return list(dict.fromkeys(name for listed in resources.values() for name in listed if name not in stored))
+
 def teamOf(bot, pid):
     for team, data in bot.get('Teams').items():
         if pid in data['Members']: return team
@@ -413,6 +419,16 @@ async def setAmount(bot, payload, *args, add = False):
 
     if name in resources['Intrinsic']:
         return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{name} is intrinsic, and teams don't hold intrinsic resources.")
+    if name in otherResources(bot):
+        if table != 'Players':
+            return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{name} is held by players, and teams don't hold it.")
+        if type(amount) is not int:
+            return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"The amount of {name} must be a whole number.")
+        if add: amount += bot.get('Players', key).get('Resources', {}).get(name, 0)
+        if amount < 0:
+            return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{name} can't go below 0.")
+        bot.set(('Players', key, 'Resources', name), amount)
+        return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{who} now has {amount} {name}.")
     if name not in holdable:
         return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{name} isn't listed under Intrinsic, Tradeable, Items or Fluids.")
     path = ('Players', key, 'Pockets') if table == 'Players' else ('Teams', key, 'Bags' if name in resources['Items'] else 'Cups')
@@ -428,7 +444,6 @@ async def setAmount(bot, payload, *args, add = False):
     else:           bot.set(path + (name,), amount)
     await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{who} now has {amount} {name} in their {path[-1].lower()}.")
 
-# only works for items/fluids
 async def give(bot, payload, *args):
     args = payload['Content'].split(' ')[1:]
     pid = payload['Author PID']
@@ -438,6 +453,20 @@ async def give(bot, payload, *args):
         return await bot.Modules['Discord_Module'].return_resp(bot, payload, "Use !give <@another player or team> <amount> <item>.")
     if name in noTrade:
         return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{name} can't be traded.")
+    if name in otherResources(bot):
+        table, key = target
+        have = bot.get('Players', pid).get('Resources', {}).get(name, 0)
+        if name not in resources['Tradeable'] or name in noTrade:
+            return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{name} can't be traded.")
+        if table != 'Players' or not bot.Modules['Discord_Module'].isPlayer(bot, key):
+            return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{name} can only be given to a player.")
+        if amount <= 0 or type(amount) is not int:
+            return await bot.Modules['Discord_Module'].return_resp(bot, payload, "The amount must be a whole number more than 0.")
+        if have < amount:
+            return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"You only have {have} {name}.")
+        bot.stage(('Players', pid, 'Resources', name), 'decrement', amount)
+        bot.stage(('Players', key, 'Resources', name), 'increment', amount)
+        return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{bot.get('Players', pid, 'Name')} gave {amount} {name} to {bot.get('Players', key, 'Name')}.")
     if amount <= 0 or (name in resources['Items'] and type(amount) is not int):
         return await bot.Modules['Discord_Module'].return_resp(bot, payload, "The amount must be more than 0, and a whole number for an item.")
     have = bot.get('Players', pid, 'Pockets', name) if bot.has('Players', pid, 'Pockets', name) else 0
@@ -534,8 +563,9 @@ async def reload_references(bot):
 Update Function Called Every 10 Seconds
 """
 async def update(bot):
-    # Players mirror the Intrinsic list
+    # Players mirror the Intrinsic list and the resources with no storage of their own
     listed = bot.get('Resources', 'Intrinsic')
+    others = otherResources(bot)
     for pid, player in bot.get('Players').items():
         if not bot.Modules['Discord_Module'].isPlayer(bot, pid): continue
         if 'Pockets' not in player: bot.set(('Players', pid, 'Pockets'), {})
@@ -543,3 +573,7 @@ async def update(bot):
             if name not in player.get('Intrinsic', {}): bot.set(('Players', pid, 'Intrinsic', name), intrinsicStart.get(name, 0))
         for name in player.get('Intrinsic', {}):
             if name not in listed: bot.remove('Players', pid, 'Intrinsic', name)
+        for name in others:
+            if name not in player.get('Resources', {}): bot.set(('Players', pid, 'Resources', name), 0)
+        for name in player.get('Resources', {}):
+            if name not in others: bot.remove('Players', pid, 'Resources', name)
