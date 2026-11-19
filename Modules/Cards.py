@@ -1,5 +1,5 @@
 #
-# Cards Module For Discord Bot (Rules 302 and 309)
+# Cards Module For Discord Bot (Rule 302)
 ################################
 import random, math
 

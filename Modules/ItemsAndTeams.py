@@ -16,8 +16,8 @@ spiceSeed = {
 }
 
 pocketsStat    = 'Pockets'
-intrinsicStart = {'Luck': 1, pocketsStat: 2, 'HP': 100, 'Crystals': 0, 'Deck-Capacity': 3}    # what a player starts with; anything else starts at 0. HP, Crystals, Deck-Capacity: rules 302, 309
-intrinsicMin   = {'HP': 1, 'Crystals': 0, 'Deck-Capacity': 0}    # the lowest each can go; the others have no floor
+intrinsicStart = {'Luck': 1, pocketsStat: 2, 'Crystals': 0}    # what a player starts with; anything else starts at 0. Crystals: rule 302
+intrinsicMin   = {'Crystals': 0}    # the lowest each can go; the others have no floor
 teamSize       = 3
 orderChan      = 'sauce-orders'
 maxOrderLen    = 1500                           # keeps an order post to a single message
