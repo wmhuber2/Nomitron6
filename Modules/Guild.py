@@ -10,7 +10,7 @@ guildCoin    = 'Guild-Coins'
 
 async def on_message(bot, message):
     pid = message['Author PID']
-    if message['Channel'] != guildChan or slogan not in ' '.join(message['Content'].lower().split()): return
+    if message['Channel'] != guildChan or slogan not in message['Content'].lower(): return
     if not bot.Modules['Discord_Module'].isPlayer(bot, pid): return
 
     week = bot.get('Vars', 'Week')

@@ -172,7 +172,7 @@ async def onWeekStart(bot):
 
     # =============================================
     # Perform On Week Start Functions Here=========
-
+    await bot.wrap( bot.Modules['Guild'].onWeekStart, {'bot':bot} )
 
     # =============================================
 

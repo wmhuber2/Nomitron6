@@ -3,8 +3,10 @@
 ################################
 import math
 
-resourceLists = ['Tradeable', 'External', 'Intrinsic', 'Sauces', 'Items', 'Fluids']
+resourceLists = ['Tradeable', 'External', 'Intrinsic', 'Sauces', 'Items', 'Fluids', 'Currencies']
 sauceSeed = ['Oyster', 'Meat', 'Ratatoile', 'Tomato', 'Garlic', 'Pesto', 'Alfredo']
+tradableSeed = ['Smiley-Coins', 'Guild-Coins']
+noTrade = ['Smiley-Coins']      # rule 307: only gained through Activities
 spiceSeed = {
     'Cinnamon':      "Pet an animal that isn't yours and that you haven't petted as a part of a spice task previously",
     'Onion Powder':  "Make and drink a beverage not submitted by anyone as part of a spice task",
@@ -80,12 +82,12 @@ async def setup(bot):
 
     add_command(bot,
         name= 'set-amount',
-        description= 'mod only -  set a player\'s intrinsic or pockets, or a team\'s bags or cups: !set-amount <@player or team> <amount> <resource>',
+        description= 'mod only -  set a player\'s intrinsic, currency or pockets, or a team\'s bags or cups: !set-amount <@player or team> <amount> <resource>',
         callback = setAmount,
         checks = ['isMod'])
     add_command(bot,
         name= 'add-amount',
-        description= 'mod only -  add to a player\'s intrinsic or pockets, or a team\'s bags or cups (negative to take away): !add-amount <@player or team> <amount> <resource>',
+        description= 'mod only -  add to a player\'s intrinsic, currency or pockets, or a team\'s bags or cups (negative to take away): !add-amount <@player or team> <amount> <resource>',
         callback = addAmount,
         checks = ['isMod'])
 
@@ -109,7 +111,7 @@ async def setup(bot):
 
     add_command(bot,
         name= 'give',
-        description= 'give from your pockets to a player or team: !give <@player or team> <amount> <item>',
+        description= 'give from your pockets to a player or team, or tradeable currency to a player: !give <@player or team> <amount> <item or currency>',
         callback = give,
         checks = ['isPlayer', 'isActions'])
 
@@ -131,10 +133,11 @@ async def setup(bot):
         checks = ['isPlayer', 'isActions'])
 
     bot.update_nested_dict(('Resources',), structure = {k:[] for k in resourceLists} | {
-        'Tradeable': list(sauceSeed),
+        'Tradeable': list(sauceSeed) + tradableSeed,
         'Intrinsic': list(intrinsicStart),
         'Sauces':    list(sauceSeed),
         'Fluids':    list(sauceSeed),
+        'Currencies': ['Smiley-Coins', 'Guild-Coins'],
     })
     if not bot.has('Spices'): bot.set(('Spices',), kwargs=dict(spiceSeed))
     bot.update_nested_dict(('Teams',), structure = {})
@@ -395,7 +398,7 @@ async def setAmount(bot, payload, *args, add = False):
     holdable = resources['Items'] + resources['Fluids'] # union of team and player holdability
     target, amount, name = splitAmount(bot, args)
     if target is None:
-        return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"Use !{'add' if add else 'set'}-amount <@player or team> <amount> <resource>. The resource must be listed under Intrinsic, Items, Fluids or Sauces.")
+        return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"Use !{'add' if add else 'set'}-amount <@player or team> <amount> <resource>. The resource must be listed under Intrinsic, Tradeable, Items, Fluids or Sauces.")
     table, key = target
     who = bot.get('Players', key, 'Name') if table == 'Players' else key
     
@@ -411,7 +414,7 @@ async def setAmount(bot, payload, *args, add = False):
     if name in resources['Intrinsic']:
         return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{name} is intrinsic, and teams don't hold intrinsic resources.")
     if name not in holdable:
-        return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{name} isn't listed under Intrinsic, Items or Fluids.")
+        return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{name} isn't listed under Intrinsic, Tradeable, Items or Fluids.")
     path = ('Players', key, 'Pockets') if table == 'Players' else ('Teams', key, 'Bags' if name in resources['Items'] else 'Cups')
     have = bot.get(*path, name) if bot.has(*path, name) else 0
     if add: amount = toNumber(have + amount)    # the checks below are on the new total
@@ -433,6 +436,8 @@ async def give(bot, payload, *args):
     target, amount, name = splitAmount(bot, args)
     if target is None or target == ('Players', pid):
         return await bot.Modules['Discord_Module'].return_resp(bot, payload, "Use !give <@another player or team> <amount> <item>.")
+    if name in noTrade:
+        return await bot.Modules['Discord_Module'].return_resp(bot, payload, f"{name} can't be traded.")
     if amount <= 0 or (name in resources['Items'] and type(amount) is not int):
         return await bot.Modules['Discord_Module'].return_resp(bot, payload, "The amount must be more than 0, and a whole number for an item.")
     have = bot.get('Players', pid, 'Pockets', name) if bot.has('Players', pid, 'Pockets', name) else 0

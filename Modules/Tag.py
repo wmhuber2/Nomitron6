@@ -52,7 +52,7 @@ async def passIt(bot, *args):
 
 async def on_message(bot, message):
     pid = message['Author PID']
-    if message['Content'] != 'TAG' or message['Channel'] not in tagChans or pid != bot.get('Vars', 'It'): return
+    if message['Content'].strip() != 'TAG' or message['Channel'] not in tagChans or pid != bot.get('Vars', 'It'): return
     if not bot.Modules['Discord_Module'].isPlayer(bot, pid): return
 
     day, now = bot.get('Vars', 'Day'), bot.get('Vars', 'Time')
